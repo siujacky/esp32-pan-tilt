@@ -141,6 +141,17 @@ Setters (`setPanMin/Max`, `setTiltMin/Max`, `setHomePan/Tilt`, `setStep`, `setHo
 their key, and — for limit changes — call `reclampToLimits()`, which pulls the live position and
 home inside the new window (writing the servo if needed) **and persists home if it moved**.
 
+### Range test with collision watch (user-designed)
+
+`GET /servotest` (web **Test** tab) sweeps ONE servo across the full physical 0–180° at 10 °/s —
+soft limits deliberately bypassed (that is the purpose of a range test), which is why every other
+motion source (joystick, D-pad, homing, auto-trim) is hard-locked while a test runs or sits halted.
+On the LX backend the sweep is **collision-watched** every 500 ms: if commanded-vs-measured exceeds
+8° while the measured angle stops progressing (~1 s), the servo is re-commanded to **measured −5°
+against its direction of travel** and the whole system **halts** until `?stop=1`. PWM servos have
+no feedback; their sweep runs blind and the UI says so. The cockpit Config page also gained a
+**Target** row so the joystick's driven servo set (PWM / SERIAL / BOTH) switches from the stick.
+
 ### Servo backends (the `ServoBackend` seam)
 
 Motion is written through an abstract **`ServoBackend`** (in `servo_backend.h`) so the mechanism is

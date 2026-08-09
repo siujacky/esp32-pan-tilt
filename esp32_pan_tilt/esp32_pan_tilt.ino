@@ -478,9 +478,37 @@ int stepToward(int cur, int tgt, int s) {
   return cur;
 }
 
+// ------------------------------------------------------------
+//  Servo range-test engine (user request): sweep ONE servo slowly across its full
+//  physical 0-180 travel, deliberately IGNORING soft limits (that is what a range
+//  test is for), at 10 deg/s so nothing gets hurt. While a test runs (or sits
+//  halted) ALL normal motion sources are locked out - joystick, D-pad, homing,
+//  auto-trim - so nothing fights the sweep ("halt the system").
+//  Collision detection (LX only - PWM has no feedback): commanded keeps advancing
+//  but the measured angle stops following -> BACK OFF to measured-5deg in the
+//  opposite direction of travel immediately, and HALT until /servotest?stop=1.
+// ------------------------------------------------------------
+int      testKind   = -1;    // -1 idle · 0 PWM pan · 1 PWM tilt · 2 LX servo
+int      testLxId   = 1;     // bus ID under test (kind 2)
+int      testDeg    = 90;    // current commanded angle
+int      testDir    = -1;    // sweep direction
+int      testPhase  = 0;     // 0: ->0   1: ->180   2: ->park   (then done)
+int      testPark   = 90;    // where to leave the servo when the test completes
+bool     testHalted = false; // collision (or manual stop) latched: system stays locked
+char     testMsg[72] = "";
+uint32_t testStepMs = 0, testChkMs = 0;
+int      testActual = -1, testPrevActual = -1, testStallN = 0;
+
+const uint32_t TEST_STEP_MS = 100;  // 1 deg per 100 ms = 10 deg/s - slow by design
+const uint32_t TEST_CHK_MS  = 500;  // feedback check cadence (LX)
+const int      TEST_ERR_DEG = 8;    // commanded-vs-measured gap that flags a block
+
+bool testBusy() { return testKind >= 0; }   // running OR halted: normal motion stays locked
+
 // B,H: begin a smooth glide to (homePan,homeTilt). The actual stepping happens
 // in updateHoming() from loop(), so this never blocks.
 void startHome() {
+  if (testBusy()) return;                   // range test owns the rig
   homing     = true;
   homeLastMs = millis();
 }
@@ -489,6 +517,7 @@ void startHome() {
 // letting sub-degree time accumulate (never advance the time base until we move
 // at least 1 deg). Sets oledDirty so the OLED animates the sweep.
 void updateHoming() {
+  if (testBusy()) return;                   // range test owns the rig
   if (!homing) return;
   uint32_t now     = millis();
   if (now - homeLastMs > 500) { homeLastMs = now; return; }   // long stall (blocking handler /
@@ -607,6 +636,7 @@ void resetCalibration() {
 //     instead of the fixed 0..180.
 // ============================================================
 void nudge(Axis axis, int dir) {
+  if (testBusy()) return;                   // range test owns the rig
   homing = false;                 // manual override: stop any home glide
   int delta = dir * stepSize;
   if (axis == PAN) {
@@ -1179,6 +1209,7 @@ bool     trimDone[2]       = { false, false }; // learned/recorded for this targ
 int      trimPersist10[4]  = { 0, 0, 0, 0 };   // last NVS-persisted values (throttle writes)
 
 void updateLxTrim() {
+  if (testBusy()) return;                   // never trim-correct a range test
   if (bknd != 1 || !lxBusUp || homing) return;
   if (ctrlTarget == 0) return;                       // LX rig not being driven
   uint32_t now = millis();
@@ -1243,6 +1274,113 @@ void updateLxTrim() {
       trimPersist10[k] = cur[k];
     }
   }
+}
+
+// Write one raw step of the range test to the servo under test. Direct backend
+// writes on purpose: driveAngle() routes/clamps by control target, and the whole
+// point here is a full-travel sweep of ONE specific servo.
+void testWrite(int deg) {
+  if      (testKind == 0) pwmB.writeAngle(PAN,  deg);
+  else if (testKind == 1) pwmB.writeAngle(TILT, deg);
+  else if (testKind == 2) lxRawMove((uint8_t)testLxId, deg, 150);
+}
+
+// Advance the range test one tick (called from loop; no-op when idle/halted).
+void updateServoTest() {
+  if (testKind < 0 || testHalted) return;
+  uint32_t now = millis();
+
+  // Collision watch (LX only): commanded advances, measured position stops following.
+  if (testKind == 2 && now - testChkMs >= TEST_CHK_MS) {
+    testChkMs = now;
+    int act = lxTicksToDeg(lxRead16((uint8_t)testLxId, LX16A_SERVO_POS_READ));
+    if (act >= 0) {
+      if (abs(testDeg - act) > TEST_ERR_DEG &&
+          testPrevActual >= 0 && abs(act - testPrevActual) < 2) {
+        if (++testStallN >= 2) {                       // ~1s of no progress with a real gap
+          int backoff = constrain(act - 5 * testDir, 0, 180);
+          lxRawMove((uint8_t)testLxId, backoff, 250);  // back off 5 deg opposite of travel, asap
+          testHalted = true;
+          snprintf(testMsg, sizeof(testMsg),
+                   "COLLISION at %d deg (cmd %d) - backed off to %d, HALTED", act, testDeg, backoff);
+          Serial.println(testMsg);
+          return;
+        }
+      } else testStallN = 0;
+      testPrevActual = act;
+      testActual = act;
+    }
+  }
+
+  if (now - testStepMs < TEST_STEP_MS) return;
+  testStepMs = now;
+
+  int target = (testPhase == 0) ? 0 : (testPhase == 1) ? 180 : testPark;
+  if (testDeg == target) {
+    if (testPhase >= 2) {                              // completed the full pattern
+      snprintf(testMsg, sizeof(testMsg), "complete - full 0-180 travel OK, parked at %d", testPark);
+      testKind = -1;
+      return;
+    }
+    testPhase++;
+    return;
+  }
+  testDir  = (target > testDeg) ? 1 : -1;
+  testDeg += testDir;
+  testWrite(testDeg);
+}
+
+// GET /servotest            -> status (state/kind/cmd/actual/msg)
+//     /servotest?start=pwm&axis=pan|tilt
+//     /servotest?start=lx&id=<n>
+//     /servotest?stop=1     -> stop / clear a halt (regains normal control)
+void handleServoTest() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  if (server.hasArg("stop")) {
+    if (testKind >= 0 || testHalted) snprintf(testMsg, sizeof(testMsg), "stopped by user");
+    testKind = -1; testHalted = false;
+    server.send(200, "text/plain", "stopped");
+    return;
+  }
+  if (server.hasArg("start")) {
+    if (testBusy()) { server.send(200, "text/plain", "fail\talready_running"); return; }
+    String what = server.arg("start");
+    testHalted = false; testStallN = 0; testPrevActual = -1; testActual = -1;
+    testPhase = 0; testStepMs = millis(); testChkMs = millis();
+    if (what == "pwm") {
+      testKind = (server.arg("axis") == "tilt") ? 1 : 0;
+      testPark = (testKind == 0) ? ctrlSlot[0].pan : ctrlSlot[0].tilt;
+      testDeg  = testPark;                             // start from where the rig believes it is
+      snprintf(testMsg, sizeof(testMsg), "PWM %s sweep (no feedback - watch it!)",
+               testKind == 0 ? "pan" : "tilt");
+    } else if (what == "lx") {
+      if (bknd != 1) { server.send(200, "text/plain", "fail\tpwm_mode"); return; }
+      if (!lxBusUp) lxBusBegin();
+      testKind = 2;
+      testLxId = constrain(server.arg("id").toInt(), 0, 253);
+      int act = lxTicksToDeg(lxRead16((uint8_t)testLxId, LX16A_SERVO_POS_READ));
+      if (act < 0) { testKind = -1; server.send(200, "text/plain", "fail\tno_reply"); return; }
+      uint8_t on[1] = { 1 };                           // make sure it will actually move
+      lxRawSend((uint8_t)testLxId, LX16A_SERVO_LOAD_OR_UNLOAD_WRITE, on, 1);
+      if (testLxId == panid)       testPark = ctrlSlot[1].pan;
+      else if (testLxId == tiltid) testPark = ctrlSlot[1].tilt;
+      else                         testPark = 90;
+      testDeg = act;                                   // start from the servo's REAL position
+      testActual = testPrevActual = act;
+      snprintf(testMsg, sizeof(testMsg), "LX id %d sweep with collision watch", testLxId);
+    } else { server.send(200, "text/plain", "fail\tbad_start"); return; }
+    server.send(200, "text/plain", "started");
+    return;
+  }
+  String o;
+  o += "state\t"; o += testHalted ? "HALTED" : (testKind >= 0 ? "running" : "idle"); o += '\n';
+  o += "kind\t";  o += (testKind == 0) ? "pwm-pan" : (testKind == 1) ? "pwm-tilt"
+                      : (testKind == 2) ? "lx" : "-"; o += '\n';
+  o += "id\t";    o += testLxId;  o += '\n';
+  o += "cmd\t";   o += testDeg;   o += '\n';
+  o += "actual\t"; o += testActual; o += '\n';
+  o += "msg\t";   o += testMsg;   o += '\n';
+  server.send(200, "text/plain", o);
 }
 
 // GET /lxcal[?reset=1]  -> the auto-trim's learned overshoots + the last 10 settle
@@ -1514,14 +1652,16 @@ void drawConfigPage() {
   oled.drawStr(0, 12, "Config");
   oled.drawHLine(0, 16, 128);
   oled.setFont(u8g2_font_6x12_tr);
-  const char* labels[3] = { "Speed", "Joy mode", "Step" };
-  for (int i = 0; i < 3; i++) {
-    int y = 38 + i * 20;
+  const char* labels[4] = { "Speed", "Joy mode", "Step", "Target" };
+  for (int i = 0; i < 4; i++) {
+    int y = 34 + i * 18;
     if (i == menuSel) { oled.drawBox(0, y - 12, 128, 16); oled.setDrawColor(0); }   // highlight row
     oled.drawStr(4, y, labels[i]);
     if      (i == 0) snprintf(buf, sizeof(buf), "%d", homeSpeed);
     else if (i == 1) snprintf(buf, sizeof(buf), "%s", joyMode ? "ABSOLUTE" : "RATE");
-    else             snprintf(buf, sizeof(buf), "%d", stepSize);
+    else if (i == 2) snprintf(buf, sizeof(buf), "%d", stepSize);
+    else             snprintf(buf, sizeof(buf), "%s",
+                              ctrlTarget == 0 ? "PWM" : ctrlTarget == 1 ? "SERIAL" : "BOTH");
     bool hide = editing && i == menuSel && (millis() / 350) % 2;                    // blink while editing
     if (!hide) oled.drawStr(124 - oled.getStrWidth(buf), y, buf);
     if (i == menuSel) oled.setDrawColor(1);
@@ -1901,6 +2041,7 @@ int stickStep(int defl, int dead, int8_t &armed, uint32_t &tmr) {
 // target (RATE jog or ABSOLUTE glide), A homes, 5s idle -> MENU. MENU: stick U/D =
 // item, L/R = page, OK = edit/confirm, B = back.
 void readJoystick() {
+  if (testBusy()) return;                   // range test owns the rig
   if (!joyEnabled || !joyMini) return;
   uint32_t now = millis();
   if (now - joyLast < JOY_MS) return;
@@ -1993,7 +2134,7 @@ void readJoystick() {
   int sx = stickStep(xd, dead, armX, tmrX);
   int sy = stickStep(yd, dead, armY, tmrY);
   int items = 0;                                    // editable rows on this page
-  if      (menuPage == 0) items = 3;                // Config: speed / joy mode / step
+  if      (menuPage == 0) items = 4;                // Config: speed / joy mode / step / target
   else if (menuPage == 5) items = SV_ITEMS;         // Servo: full per-servo setting list
 
   if (bB) { editing = false; oledDirty = true; return; }   // back / cancel edit
@@ -2007,7 +2148,9 @@ void readJoystick() {
       if (menuPage == 0) {
         if      (menuSel == 0) setHomeSpeed(homeSpeed + d * 5);
         else if (menuSel == 1) setJoyMode(d > 0 ? 1 : 0);    // up = ABSOLUTE, down = RATE
-        else                   setStep(stepSize + d);
+        else if (menuSel == 2) setStep(stepSize + d);
+        else                   setCtrlTarget((ctrlTarget + (d > 0 ? 1 : 2)) % 3);   // cycle the
+                               // driven servo set from the stick (clamped to PWM if no LX bus)
       } else if (menuPage == 5) {
         svEdit(menuSel, d);
       }
@@ -2106,6 +2249,7 @@ void setup() {
   server.on("/lxtx",       HTTP_GET, handleLxTx);         // is the ESP32 transmitting at all? (D1)
   server.on("/lxfix",      HTTP_GET, handleLxFix);        // force half-duplex re-arm + sweep
   server.on("/lxcal",      HTTP_GET, handleLxCal);        // auto-trim: learned overshoots + records
+  server.on("/servotest",  HTTP_GET, handleServoTest);    // slow full-range sweep + collision watch
   server.on("/servoscan",  HTTP_GET, handleServoScan);    // LX-16A bus discovery
   server.on("/servoid",    HTTP_GET, handleServoId);      // LX-16A safe ID programming
   server.on("/servocfg",   HTTP_GET, handleServoCfg);     // LX-16A per-servo config read/write
@@ -2134,6 +2278,9 @@ void loop() {
 
   // Stiction auto-trim: settle-check + staircase correction + learning (no-op unless LX driven).
   updateLxTrim();
+
+  // Servo range test: slow full-travel sweep + collision watch (no-op when idle).
+  updateServoTest();
 
   // OLED cockpit: no auto page-advance (the joystick navigates). Refresh at OLED_DRAW_MS
   // so the DRIVE HUD and MENU values track state; the full-frame push never hogs loop().

@@ -203,6 +203,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       <button type="button" class="tab" data-g="lx" id="cfgTabLx" hidden>Serial</button>
       <button type="button" class="tab" data-g="pwm">Digital</button>
       <button type="button" class="tab" data-g="joy">Joystick</button>
+      <button type="button" class="tab" data-g="test">Test</button>
       <button type="button" class="tab" data-g="sys">System</button>
     </div>
 
@@ -250,6 +251,28 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       </div>
       <button type="button" class="act wide" id="pwmPinSave" style="margin-top:12px;">Save pins &amp; reboot</button>
       <div id="pwmPinMsg" class="wmsg">Pins already used by the serial bus, I2C, LEDs, or the other servo are not listed. Saved to flash and applied on the next boot.</div>
+    </div>
+
+    <div class="card" data-g="test">
+      <div class="panel-h"><span>Servo range test</span><span id="testSum" class="sum"></span></div>
+      <div class="wmsg" style="margin:0 0 12px; color:var(--home);">&#9888; Sweeps the FULL 0&ndash;180&deg; travel, ignoring soft limits, at a gentle 10&deg;/s.
+        All other control (joystick, D-pad, home) is locked while a test runs.
+        Serial servos are collision-watched: if the measured angle stops following the command,
+        the servo backs off 5&deg; and everything HALTS until you press Stop.
+        PWM servos have no feedback &mdash; their sweep runs blind, so watch the rig.</div>
+      <div class="grid">
+        <div class="cell"><button type="button" class="act" id="tPwmPan">Test PWM pan</button></div>
+        <div class="cell"><button type="button" class="act" id="tPwmTilt">Test PWM tilt</button></div>
+      </div>
+      <div class="cfg-row" style="margin-top:12px;">
+        <label for="testId">Serial servo (with collision watch)</label>
+        <div class="row">
+          <select id="testId" aria-label="LX servo ID to test"></select>
+          <button type="button" class="act" id="tLx">Test</button>
+        </div>
+      </div>
+      <button type="button" class="reset" id="tStop" style="width:100%; margin-top:12px;">STOP / clear halt</button>
+      <div id="testOut" class="lxout">idle</div>
     </div>
 
     <div class="card" data-g="joy">
@@ -555,6 +578,37 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   var joyEn = $('joyEn'), joyMd = $('joyMd'), joySum = $('joySum'), kbWarn = $('kbWarn');
   var lxPin = $('lxPin'), lxPinSave = $('lxPinSave'), lxPinMsg = $('lxPinMsg');
   var lxRelaxSel = $('lxRelaxSel');
+  var testId = $('testId'), testOut = $('testOut'), testSum = $('testSum');
+  var testTimer = null;
+
+  // Servo range test: start/stop + a light status poll while a test is live.
+  function testPoll(){
+    fetch('/servotest').then(function(r){ return r.text(); }).then(function(t){
+      var kv = {};
+      String(t).split('
+').forEach(function(ln){ var i = ln.indexOf('	'); if (i > 0) kv[ln.slice(0, i)] = ln.slice(i + 1); });
+      var s = kv.state || '?';
+      if (testSum) testSum.textContent = s;
+      if (testOut) testOut.textContent = s + '  ·  cmd ' + (kv.cmd || '-') + '°  actual ' +
+        ((kv.actual === '-1') ? 'n/a' : (kv.actual || '-') + '°') + '
+' + (kv.msg || '');
+      if (s === 'idle' && testTimer){ clearInterval(testTimer); testTimer = null; }
+    }).catch(function(){});
+  }
+  function testGo(q){
+    fetch('/servotest?' + q).then(function(r){ return r.text(); }).then(function(t){
+      if (String(t).indexOf('fail') === 0){ testOut.textContent = 'refused — ' + String(t).split('	')[1]; return; }
+      if (!testTimer) testTimer = setInterval(testPoll, 700);
+      testPoll();
+    }).catch(function(){ testOut.textContent = 'no reply'; });
+  }
+  if ($('tPwmPan'))  $('tPwmPan').addEventListener('click',  function(){ testGo('start=pwm&axis=pan'); });
+  if ($('tPwmTilt')) $('tPwmTilt').addEventListener('click', function(){ testGo('start=pwm&axis=tilt'); });
+  if ($('tLx'))      $('tLx').addEventListener('click', function(){
+    if (!testId.value){ testOut.textContent = 'pick a serial servo ID first (scan on the Serial tab)'; return; }
+    testGo('start=lx&id=' + testId.value);
+  });
+  if ($('tStop'))    $('tStop').addEventListener('click', function(){ testGo('stop=1'); });
   var pwmPanSel = $('pwmPanSel'), pwmTiltSel = $('pwmTiltSel'),
       pwmPinSave = $('pwmPinSave'), pwmPinMsg = $('pwmPinMsg'), pwmSum = $('pwmSum');
   var lastLxPin = -1;
@@ -685,6 +739,8 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       setSelIdle(panSel, p[14]); setSelIdle(tiltSel, p[15]);   // fields 15/16 = panid/tiltid
       ensureOpt(cfgId, p[14]); ensureOpt(cfgId, p[15]);       // Detail dropdown knows the linked IDs
       if (cfgId && !cfgId.value) cfgId.value = String(p[14]);
+      ensureOpt(testId, p[14]); ensureOpt(testId, p[15]);     // Test dropdown too
+      if (testId && !testId.value) testId.value = String(p[14]);
       if (idWarn) idWarn.textContent = (p[14] === p[15])
         ? ('⚠ pan and tilt share bus ID ' + p[14] + ' — program distinct IDs below') : '';
       if (isLx && p.length >= 23 && telPan){             // fields 17-23 telemetry, only when bknd==1
@@ -857,7 +913,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       var d = document.createElement('div');
       d.textContent = 'ID ' + f[0] + '  ' + DOT + ' ' + volts(f[1]) + ' ' + DOT + ' ' + degC(f[2]) + ' ' + DOT + ' ' + degA(f[3]);
       scanOut.appendChild(d);
-      ensureOpt(panSel, f[0]); ensureOpt(tiltSel, f[0]); ensureOpt(cfgId, f[0]);
+      ensureOpt(panSel, f[0]); ensureOpt(tiltSel, f[0]); ensureOpt(cfgId, f[0]); ensureOpt(testId, f[0]);
     });
     scanSum.textContent = lines.length + ' found';
   }
@@ -876,7 +932,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       var id = parseInt(t, 10);
       if (!id){ scanOut.textContent = 'none / ambiguous — connect exactly one servo'; scanSum.textContent = ''; return; }
       scanOut.textContent = 'lone servo: ID ' + id; scanSum.textContent = '1 found';
-      ensureOpt(panSel, id); ensureOpt(tiltSel, id); ensureOpt(cfgId, id);
+      ensureOpt(panSel, id); ensureOpt(tiltSel, id); ensureOpt(cfgId, id); ensureOpt(testId, id);
     }).catch(function(){ scanOut.textContent = 'scan failed'; })
       .then(function(){ scanRange.disabled = false; scanLone.disabled = false; });
   });
@@ -971,7 +1027,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   // firmware does the duplicate pre-check. Reply is "ok<TAB><id>" / "fail<TAB><reason>".
   function progDone(t){
     var f = String(t).trim().split('\t');
-    if (f[0] === 'ok'){ progMsg.textContent = 'done — servo is now ID ' + f[1]; ensureOpt(panSel, f[1]); ensureOpt(tiltSel, f[1]); ensureOpt(cfgId, f[1]); }
+    if (f[0] === 'ok'){ progMsg.textContent = 'done — servo is now ID ' + f[1]; ensureOpt(panSel, f[1]); ensureOpt(tiltSel, f[1]); ensureOpt(cfgId, f[1]); ensureOpt(testId, f[1]); }
     else progMsg.textContent = 'fail: ' + reason((f[1] || ''));
   }
   progBroadcast.addEventListener('click', function(){

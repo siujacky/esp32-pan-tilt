@@ -44,6 +44,10 @@ troubleshooting. (Also downloadable from [Releases](../../releases), source at `
   setting is one tap away instead of a long scroll; the Servos tab appears only on the LX backend.
 - **HOME glide** — a center/home button that **smoothly glides** both servos back at an
   adjustable speed (10–300 °/s) instead of snapping.
+- **Servo range test** (web · Test tab) — sweep any single servo across its full 0–180° travel at a
+  gentle 10 °/s (soft limits deliberately bypassed). All other control locks out during the test.
+  Serial servos are **collision-watched**: if the measured angle stops following the command, the
+  servo backs off 5° opposite its travel and the system halts until you press Stop.
 - **Speed / step** — a slider sets degrees-per-nudge (1–30°).
 - **Soft limits** — per-axis min/max travel windows so a servo can't drive past a stop.
 - **Home calibration** — "home" is a position you set (capture the current angle, or type it).
@@ -314,6 +318,7 @@ All `/action` and `/status` responses are `text/plain` with header
 | `GET /action?go=Y,<0\|1>` | joystick drive mode: 0 = RATE (hold to jog), 1 = ABSOLUTE (glide to stick) |
 | `GET /action?go=R,<0\|1>` | LX idle torque: 0 = hold position, 1 = release ~3 s after each move settles (no buzz; no holding force) |
 | `GET /action?go=K,<HM\|BK\|EN\|TG>,<0-4>` | remap a cockpit button (home / back / confirm / toggle) to A·B·C·D·OK |
+| `GET /servotest?start=pwm&axis=pan\|tilt` · `?start=lx&id=<n>` · `?stop=1` | slow full-range sweep (10°/s, ignores soft limits); serial servos are collision-watched — on block: back off 5° and HALT |
 | `GET /status` | current state |
 | `GET /scan` | list visible WiFi networks (`ssid⇥rssi⇥locked` per line) |
 | `GET /setwifi?ssid=..&pass=..` | save WiFi creds to NVS and reboot to join |
