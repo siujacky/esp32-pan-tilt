@@ -123,11 +123,8 @@ PwmBackend    pwmB;                 // always constructed + begun
 Lx16aBackend  lxB;                  // constructed always; begun only if bknd==1
 ServoBackend* backend = &pwmB;      // active backend (telemetry/name/OLED); set in setup()
 
-// Router: fan a logical angle write out to the targeted backend(s). LX only if it's up.
-void driveAngle(Axis a, int deg) {
-  if (ctrlTarget == 0 || ctrlTarget == 2) pwmB.writeAngle(a, deg);
-  if ((ctrlTarget == 1 || ctrlTarget == 2) && bknd == 1) lxB.writeAngle(a, deg);
-}
+// (driveAngle is defined below ctrlSlot: in "Both" mode each rig is clamped to ITS OWN
+// slot's soft-limit window, which needs the slot array in scope - review finding.)
 
 // Per-target saved state (D-A2 full): each target is an INDEPENDENT controller - its own
 // position AND its own config (limits/home/speed/step), because the backends "may control
@@ -150,6 +147,25 @@ void hintBar(int y, const Hint* h, int n);
                         SERVO_MIN_DEG, SERVO_MAX_DEG, SERVO_MIN_DEG, SERVO_MAX_DEG, \
                         HOME_DEG, HOME_DEG, 90, 5 }
 CtrlState ctrlSlot[3] = { CTRL_DEFAULTS, CTRL_DEFAULTS, CTRL_DEFAULTS };
+
+// Router: fan a logical angle write out to the targeted backend(s). LX only if it's up.
+// Targets 0/1: the live soft limits already clamped the command upstream (nudge/glide),
+// so the write passes through. Target 2 "Both" (review finding): the shared command was
+// clamped only by slot 2's window, so a rig calibrated NARROWER in its own slot could be
+// driven past its physical stop while mirroring - here each rig is clamped to its OWN
+// slot's window (slots 0/1 cannot change while target 2 is active, so they are in sync).
+void driveAngle(Axis a, int deg) {
+  if (ctrlTarget == 0) { pwmB.writeAngle(a, deg); return; }
+  if (ctrlTarget == 1) { if (bknd == 1) lxB.writeAngle(a, deg); return; }
+  int dp = (a == PAN) ? constrain(deg, ctrlSlot[0].panMin,  ctrlSlot[0].panMax)
+                      : constrain(deg, ctrlSlot[0].tiltMin, ctrlSlot[0].tiltMax);
+  pwmB.writeAngle(a, dp);
+  if (bknd == 1) {
+    int dl = (a == PAN) ? constrain(deg, ctrlSlot[1].panMin,  ctrlSlot[1].panMax)
+                        : constrain(deg, ctrlSlot[1].tiltMin, ctrlSlot[1].tiltMax);
+    lxB.writeAngle(a, dl);
+  }
+}
 
 // ------------------------------------------------------------
 //  Section 4.5 (v2) - Soft limits, home calibration, glide, NVS
@@ -410,10 +426,13 @@ void loadSettings() {
   if (bknd != 1) ctrlTarget = 0;             // no LX bus -> PWM only
   panid  = constrain(panid,  0, 253);
   tiltid = constrain(tiltid, 0, 253);    // panid==tiltid is a UI collision WARNING, not auto-fixed (section 8)
-  lxpin  = prefs.getInt("lxpin", lxpin);           // LX bus GPIO (web-settable, applied at boot)
-  if (lxPinReject(lxpin)) lxpin = LX_PIN_DEFAULT;  // a corrupt/unusable stored pin can't strand the bus
-  pwmPanPin  = prefs.getInt("ppin", pwmPanPin);    // PWM pins (web-settable, applied at boot)
+  // Load ALL pin settings BEFORE validating any (review finding: validating lxpin
+  // first ran its collision check against the compile-time PWM defaults, so a stored
+  // lxpin equal to a default-but-relocated PWM pin was silently reset every boot).
+  lxpin      = prefs.getInt("lxpin", lxpin);       // all three web-settable, applied at boot
+  pwmPanPin  = prefs.getInt("ppin", pwmPanPin);
   pwmTiltPin = prefs.getInt("tpin", pwmTiltPin);
+  if (lxPinReject(lxpin)) lxpin = LX_PIN_DEFAULT;  // now checked against the REAL stored PWM pins
   if (pwmPinReject(pwmPanPin,  pwmTiltPin)) pwmPanPin  = PWM_PAN_DEFAULT;   // corrupt/colliding NVS
   if (pwmPinReject(pwmTiltPin, pwmPanPin))  pwmTiltPin = PWM_TILT_DEFAULT;  // can't strand the rig
   lxRelax = constrain(prefs.getInt("lxrelax", lxRelax), 0, 1);            // idle torque release
@@ -840,11 +859,16 @@ bool servoBusReady() {
   return true;
 }
 
-// Sweep window for broadcast diagnostics: stay inside BOTH axes' soft-limit
-// windows (a broadcast reaches every servo), centred as close to 90 as allowed.
+// Sweep window for broadcast diagnostics: stay inside BOTH axes' soft-limit windows of
+// the LX TARGET'S OWN slot (review finding: using the live globals meant the sweep was
+// clamped by whatever target happened to be active - possibly the PWM slot's wide-open
+// window - and could drive the LX rig past its calibrated stops). saveSlot() first so
+// the slot array reflects live values when the LX target IS the active one.
 static void lxSweepWindow(int &a, int &b, int &mid) {
-  int lo = max(panMin, tiltMin), hi = min(panMax, tiltMax);
-  if (lo > hi) { lo = min(panMin, tiltMin); hi = max(panMax, tiltMax); }   // disjoint: fall back
+  saveSlot(ctrlTarget);
+  int lo = max(ctrlSlot[1].panMin, ctrlSlot[1].tiltMin);
+  int hi = min(ctrlSlot[1].panMax, ctrlSlot[1].tiltMax);
+  if (lo > hi) { int t = lo; lo = hi; hi = t; }     // disjoint windows: use the overlap edges
   mid = constrain(90, lo, hi);
   a   = constrain(mid - 20, lo, hi);
   b   = constrain(mid + 20, lo, hi);
@@ -1109,13 +1133,13 @@ int deriveFault() {
   int f = 0;
   if (telPanTemp    >= 0 && telPanTemp  >= LX_TEMP_CAP_C)                                f |= 0x01;
   if (telPanVin     >= 0 && (telPanVin  < LX_VIN_MIN_MV || telPanVin  > LX_VIN_MAX_MV))  f |= 0x02;
-  if (!lxB.lxRelaxed[0] &&
-      telPanActual  >= 0 && abs(panPos  - telPanActual)  > STALL_DEG)                    f |= 0x04;
+  if (ctrlTarget != 0 && !lxRelaxed[0] &&            // stall is only meaningful when the live
+      telPanActual  >= 0 && abs(panPos  - telPanActual)  > STALL_DEG)  f |= 0x04;   // pos commands the LX rig
   if (panSeen  && panFailN  >= FAULT_FAIL_N)                                             f |= 0x08;
   if (telTiltTemp   >= 0 && telTiltTemp >= LX_TEMP_CAP_C)                                f |= 0x10;
   if (telTiltVin    >= 0 && (telTiltVin < LX_VIN_MIN_MV || telTiltVin > LX_VIN_MAX_MV))  f |= 0x20;
-  if (!lxB.lxRelaxed[1] &&
-      telTiltActual >= 0 && abs(tiltPos - telTiltActual) > STALL_DEG)                    f |= 0x40;
+  if (ctrlTarget != 0 && !lxRelaxed[1] &&
+      telTiltActual >= 0 && abs(tiltPos - telTiltActual) > STALL_DEG)  f |= 0x40;
   if (tiltSeen && tiltFailN >= FAULT_FAIL_N)                                             f |= 0x80;
   return f;
 }
@@ -1180,7 +1204,7 @@ void updateLxTrim() {
     // NOTE: lxPhys < 0 must never reach the learner below - the -1 sentinel once got
     // treated as a position and slammed the trim to its cap.
     if (trimDone[i] || lxB.lxPhys[i] < 0) {
-      if (lxRelax && !lxB.lxRelaxed[i] && now - lxB.lxCmdMs[i] > 3000) lxB.relax(a);
+      if (lxRelax && !lxRelaxed[i] && now - lxB.lxCmdMs[i] > 3000) lxB.relax(a);
       continue;
     }
     if (now - lxB.lxCmdMs[i] < 450) continue;        // let the move finish + mechanics settle
@@ -1199,7 +1223,10 @@ void updateLxTrim() {
       trimBudget[i]--;
     } else {                                         // budget spent: record the residual miss
       lxCalRecord(i, lxB.lxDir[i], logical, lxB.lxPhys[i], actual);
-      if (abs(err) <= 2) {                           // user rule: within 2 deg, accept the servo's
+      // Adopt only when the LX rig is the SOLE target (review finding: in "Both" mode
+      // panPos/tiltPos also command the mirrored PWM rig, which was never re-driven -
+      // adopting the LX servo's reality silently desynced the PWM servo from the UI).
+      if (ctrlTarget == 1 && abs(err) <= 2) {        // user rule: within 2 deg, accept the servo's
         int adopt = constrain(actual,                // reported position as the truth (clamped to
                               (i == 0) ? panMin : tiltMin,     // the soft-limit window)...
                               (i == 0) ? panMax : tiltMax);
@@ -1584,9 +1611,9 @@ void svEdit(int item, int d) {
     case 3: if (svCfg.alimMin >= 0 && svCfg.alimMax >= 0)
               lxCfgWrite(id, "alim", svCfg.alimMin, constrain(svCfg.alimMax + d * 10, svCfg.alimMin + 1, 1000));
             break;
-    case 4: if (svCfg.posDeg >= 0)                   // trim (RAM), -125..125, 1 unit = 0.24 deg;
-              lxCfgWrite(id, "trim", constrain(svCfg.trim + d, -125, 125));   // gate on a live
-            break;                                   // servo: -1 is both "failed" and a real trim
+    case 4: if (svCfg.trim > -128)                   // trim (RAM), -125..125, 1 unit = 0.24 deg;
+              lxCfgWrite(id, "trim", constrain(svCfg.trim + d, -125, 125));   // -128 = the trim
+            break;                                   // READ failed (review: posDeg was a bad proxy)
     case 5: lxCfgWrite(id, "trimsave", 0);           // ACTION: persist trim to servo EEPROM
             break;
     case 6: if (svCfg.vlimMin >= 0 && svCfg.vlimMax >= 0)
@@ -1652,7 +1679,7 @@ void drawServoPage() {
       case 1:  snprintf(buf, sizeof(buf), "%d", (svSel == 0) ? panid : tiltid); break;
       case 2:  if (ok && svCfg.alimMin >= 0) snprintf(buf, sizeof(buf), "%d", svCfg.alimMin); else strcpy(buf, "--"); break;
       case 3:  if (ok && svCfg.alimMax >= 0) snprintf(buf, sizeof(buf), "%d", svCfg.alimMax); else strcpy(buf, "--"); break;
-      case 4:  if (ok && svCfg.posDeg  >= 0) snprintf(buf, sizeof(buf), "%d", svCfg.trim);    else strcpy(buf, "--"); break;
+      case 4:  if (ok && svCfg.trim > -128)  snprintf(buf, sizeof(buf), "%d", svCfg.trim);    else strcpy(buf, "--"); break;
       case 5:  strcpy(buf, "[OK]"); break;                                    // action row
       case 6:  if (ok && svCfg.vlimMin >= 0) snprintf(buf, sizeof(buf), "%d", svCfg.vlimMin); else strcpy(buf, "--"); break;
       case 7:  if (ok && svCfg.vlimMax >= 0) snprintf(buf, sizeof(buf), "%d", svCfg.vlimMax); else strcpy(buf, "--"); break;
@@ -1925,8 +1952,13 @@ void readJoystick() {
     yd = ry2 - 128;
     dead = 25; full = 127;
   } else {                                          // seesaw: analog 0-1023
-    xd = (int)joy.analogRead(joyXPin) - joyCenterX;
-    yd = (int)joy.analogRead(joyYPin) - joyCenterY;
+    // Same double-read consistency guard as the mini path (review finding: a bus
+    // glitch returning 0/garbage decoded as full deflection = uncommanded runaway).
+    int rx  = (int)joy.analogRead(joyXPin), ry  = (int)joy.analogRead(joyYPin);
+    int rx2 = (int)joy.analogRead(joyXPin), ry2 = (int)joy.analogRead(joyYPin);
+    if (abs(rx - rx2) > 60 || abs(ry - ry2) > 60) return;   // inconsistent: inert tick
+    xd = rx2 - joyCenterX;
+    yd = ry2 - joyCenterY;
     dead = JOY_DEAD; full = 511;
   }
 
@@ -1939,6 +1971,11 @@ void readJoystick() {
     bool click[5];
     for (int i = 0; i < 5; i++) {
       int v = miniRead(JOY_BTN_REG[i]);
+      if (v > 8) v = -1;                            // valid event codes are 0..8; else garbage
+      if (v == 3) {                                 // click candidate: confirm plausibility with a
+        int v2 = miniRead(JOY_BTN_REG[i]);          // second read - a real click reads 3 again (or
+        if (v2 < 0 || v2 > 8) v = -1;               // 8 if the event cleared); garbage reads random
+      }
       click[i] = (v == 3 && pv[i] != 3);            // failed read (-1): no click, keep prev state
       if (v >= 0) pv[i] = (uint8_t)v;
     }

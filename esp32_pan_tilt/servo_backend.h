@@ -228,6 +228,18 @@ static inline int lxRead16(uint8_t id, uint8_t cmd) {
   uint8_t p[4];
   return (lxRawRead(id, cmd, p, 4) >= 2) ? (p[0] | ((int)p[1] << 8)) : -1;
 }
+
+// POS_READ ticks are a SIGNED int16 on the LX-16A: a servo pressed slightly past its
+// 0-tick end reports e.g. -4, which an unsigned decode turns into ~65530 ticks and a
+// ~15700-degree "measured angle" (review finding - garbage into the UI, the stall
+// fault, AND the auto-trim staircase). Decode signed, clamp into the physical range.
+static inline int lxTicksToDeg(int rawTicks) {
+  if (rawTicks < 0) return -1;                      // read failed
+  int s = (int16_t)(uint16_t)rawTicks;              // reinterpret as the servo's signed value
+  if (s < 0)    s = 0;
+  if (s > 1000) s = 1000;
+  return s * 240 / 1000;
+}
 static inline int lxRead8(uint8_t id, uint8_t cmd) {
   uint8_t p[4];
   return (lxRawRead(id, cmd, p, 4) >= 1) ? p[0] : -1;
@@ -292,6 +304,11 @@ static const int LX_TRIM_APPLYCAP = 6;   // hard cap on |physical - logical| eve
 int lxTrim10Up[2] = { 0, 0 };            // learned trim, tenths deg, moving UP   (index: PAN/TILT)
 int lxTrim10Dn[2] = { 0, 0 };            // learned trim, tenths deg, moving DOWN
 
+// Torque state per axis, FILE-SCOPE so every unload path updates it (review finding:
+// as a backend member only relax() set it, so a web /servocfg or OLED torque unload
+// left it false and the next move skipped the torque re-engage packet - dead axis).
+bool lxRelaxed[2] = { false, false };
+
 struct LxCalRec { uint32_t ms; int8_t axis, dir; int16_t cmd, phys, actual, err; };
 LxCalRec lxCalRing[10];                  // last 10 settle observations (newest overwrites oldest)
 uint8_t  lxCalHead = 0, lxCalCount = 0;
@@ -330,7 +347,7 @@ static inline int lxScanRange(int hi, LxScanResult* out, int maxOut) {
     if (ticks < 0) continue;                                        // nobody home at this id
     LxScanResult r;
     r.id     = id;
-    r.posDeg = ticks * 240 / 1000;                                  // raw ticks -> physical deg
+    r.posDeg = lxTicksToDeg(ticks);                                 // signed-safe ticks -> deg
     r.vinMv  = lxRead16(id, LX16A_SERVO_VIN_READ);
     r.tempC  = lxRead8(id, LX16A_SERVO_TEMP_READ);
     out[n++] = r;
@@ -410,10 +427,10 @@ static inline LxConfig lxCfgRead(int id) {
   c.tlim = lxRead8(id, LX16A_SERVO_TEMP_MAX_LIMIT_READ);
   if (lxRawRead(id, LX16A_SERVO_OR_MOTOR_MODE_READ, p, 4) >= 4) { c.mode = p[0]; c.speed = (int16_t)(p[2] | ((int)p[3] << 8)); }
   c.torque = lxRead8(id, LX16A_SERVO_LOAD_OR_UNLOAD_READ);
-  { int t = lxRead8(id, LX16A_SERVO_ANGLE_OFFSET_READ); c.trim = (t < 0) ? -1 : (int8_t)(uint8_t)t; }
+  { int t = lxRead8(id, LX16A_SERVO_ANGLE_OFFSET_READ); c.trim = (t < 0) ? -128 : (int8_t)(uint8_t)t; }   // -128 = read failed (-1 is a real trim)
   c.led    = lxRead8(id, LX16A_SERVO_LED_CTRL_READ);
   c.lederr = lxRead8(id, LX16A_SERVO_LED_ERROR_READ);
-  { int t = lxRead16(id, LX16A_SERVO_POS_READ); c.posDeg = (t < 0) ? -1 : t * 240 / 1000; }
+  { c.posDeg = lxTicksToDeg(lxRead16(id, LX16A_SERVO_POS_READ)); }
   c.vinMv = lxRead16(id, LX16A_SERVO_VIN_READ);
   c.tempC = lxRead8(id, LX16A_SERVO_TEMP_READ);
   return c;
@@ -452,6 +469,10 @@ static inline LxWriteResult lxCfgWrite(int id, const char* field, int v, int v2 
     if (v < 0 || v > 1) return { false, "range" };
     uint8_t p[1] = { (uint8_t)v };
     lxRawSend((uint8_t)id, LX16A_SERVO_LOAD_OR_UNLOAD_WRITE, p, 1);
+    // Keep the wake state truthful for EVERY unload path (review finding): if this id
+    // is a linked axis, the next writeAngle must know to re-engage torque first.
+    if (id == panid)  lxRelaxed[0] = (v == 0);
+    if (id == tiltid) lxRelaxed[1] = (v == 0);
     return { true, "ok" };
   }
   if (!strcmp(field, "trim")) {                 // cmd 17 (RAM): v = -125..125
@@ -528,9 +549,7 @@ struct Lx16aBackend : ServoBackend {
   int      lxPhys[2]  = { -1, -1 };  // last PHYSICAL deg sent (logical + learned trim + bumps)
   int8_t   lxDir[2]   = { 1, 1 };    // direction of the last logical move (+1/-1; sticky on repeats)
   uint32_t lxCmdMs[2] = { 0, 0 };    // millis of the last command per axis (settle timing)
-  bool     lxRelaxed[2] = { false, false };  // torque released after idle (user option `lxrelax`):
-                                             // the servo stops stall-pushing/buzzing while parked;
-                                             // any new command re-engages torque first
+  // (torque state lives in the file-scope lxRelaxed[2] above, so web/OLED unloads count too)
 
   // begin(): half-duplex bring-up. Order: bus engine up, torque on (broadcast, so it
   // works whatever ID the servo carries), then a gentle STAGGERED glide home (audit:
@@ -635,8 +654,7 @@ struct Lx16aBackend : ServoBackend {
   bool telemetry() override { return true; }
 
   int readAngle(Axis a) override {
-    int ticks = lxRead16(idFor(a), LX16A_SERVO_POS_READ);
-    return (ticks < 0) ? -1 : ticks * 240 / 1000;     // ticks 0..1000 -> physical deg
+    return lxTicksToDeg(lxRead16(idFor(a), LX16A_SERVO_POS_READ));   // signed-safe decode
   }
   int readVinMv(Axis a) override { return lxRead16(idFor(a), LX16A_SERVO_VIN_READ); }
   int readTempC(Axis a) override { return lxRead8(idFor(a),  LX16A_SERVO_TEMP_READ); }
