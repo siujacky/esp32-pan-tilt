@@ -18,7 +18,6 @@
 #include <U8g2lib.h>
 #include <Preferences.h>   // NVS persistence (namespace "pantilt")
 #include <Adafruit_NeoPixel.h>   // WS2812B corner LEDs on GPIO 16
-#include <Adafruit_seesaw.h>     // I2C joystick (Adafruit Joystick FeatherWing, seesaw @ 0x49)
 #include "web_page.h"        // provides: const char INDEX_HTML[] PROGMEM
 #include "servo_backend.h"   // ServoBackend seam: enum Axis, PwmBackend (default) + Lx16aBackend, LX helpers
 
@@ -80,16 +79,13 @@ const uint32_t LED_FRAME_MS   = 80;    // motion animation step interval
 const uint32_t MOOD_FRAME_MS  = 60;    // idle mood-light update interval (slow rainbow)
 const uint8_t  MOOD_VAL       = 76;    // idle mood brightness, ~30% of 255
 
-// I2C joystick (Adafruit Joystick FeatherWing, seesaw @ 0x49) - shares the OLED I2C bus (21/22).
-// Auto-detected; absent => no-op. For now it drives the servos directly (rate-jog + buttons);
-// the DRIVE/MENU cockpit is a later phase (serial_upgrade_and_joystick.md).
-// Supports the Joystick FeatherWing (0x49, X=1/Y=15) AND the Gamepad QT (0x50, X=14/Y=15);
-// auto-detected on the shared I2C bus. Axes/buttons are assigned when the device is found.
-uint8_t  joyXPin = 1, joyYPin = 15;      // analog axes
-uint32_t joyBtnMask = 0;                 // all button bits
-uint8_t  joyBtnHome = 13, joyBtnTgt = 2; // button pins that do HOME / cycle-target (P3 actions)
+// I2C joystick: nulllab mini module @ 0x5A (raw registers, no library) - shares the OLED
+// I2C bus (21/22). Auto-detected at boot; absent => the cockpit input is simply a no-op.
+// (A speculative Adafruit-seesaw path was fully REMOVED 2026-08-09: that hardware was
+// never part of this build, and its dead code carried its own review finding.)
 const uint32_t JOY_MS       = 30;        // read cadence, ms
-const int      JOY_DEAD     = 90;        // deadzone around centre
+const int      JOY_DEAD     = 25;        // deadzone around centre (0-255 scale, centre 128)
+const int      JOY_FULL     = 127;       // full deflection from centre
 const uint16_t JOY_SLOW_MS  = 220;       // rate-jog nudge interval at min deflection
 const uint16_t JOY_FAST_MS  = 40;        // ...at full deflection
 
@@ -110,8 +106,7 @@ int   tiltPos = HOME_DEG;
 // drives - "connect both to test". `backend` points at the active one for telemetry/OLED.
 int   bknd       = 0;    // LX enabled at boot? 0 = PWM only (default), 1 = LX-16A bus up too
 int   ctrlTarget = 0;    // routing: 0 = PWM, 1 = LX-16A, 2 = Both (mirror). NVS "ctgt"
-bool  joyPresent = false;// seesaw joystick detected? (set in setupJoystick, Section 9)
-bool  joyMini    = false;// nulllab mini-joystick (raw I2C @ 0x5A) detected?
+bool  joyMini    = false;// nulllab mini-joystick (raw I2C @ 0x5A) detected at boot
 int   joyEnabled = 1;    // NVS "joyen"; 0 = ignore the stick even if present
 int   panid  = 1;        // LX-16A pan  servo bus ID
 int   tiltid = 2;        // LX-16A tilt servo bus ID
@@ -368,7 +363,7 @@ String fullStatus() {
   s += ','; s += telTiltActual;   // 22
   s += ','; s += servoFault;      // 23
   s += ','; s += ctrlTarget;      // 24 (0=PWM 1=LX 2=Both) control-target router
-  s += ','; s += ((joyPresent || joyMini) ? 1 : 0);   // 25 joystick detected
+  s += ','; s += (joyMini ? 1 : 0);      // 25 joystick detected
   s += ','; s += joyEnabled;             // 26 joystick enabled
   s += ','; s += joyMode;                // 27 joystick mode (0 RATE / 1 ABSOLUTE)
   s += ','; s += mapHome;                // 28-31 button remap (index 0..4 = A/B/C/D/OK)
@@ -1862,41 +1857,18 @@ void drawMotionScreen() {
 }
 
 // ============================================================
-//  Section 9 - I2C joystick (seesaw): drive the active target directly (P3)
+//  Section 9 - I2C joystick (nulllab mini @ 0x5A): the cockpit's physical input
 // ============================================================
-Adafruit_seesaw joy;
-int      joyCenterX = 512, joyCenterY = 512;
 uint32_t joyLast = 0, joyPanJog = 0, joyTiltJog = 0;
-uint32_t joyPrevBtn = 0xFFFFFFFF;      // all buttons released (pull-up: released = 1)
 
 void setupJoystick() {
   Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);       // shared bus; ensures 21/22 even if the OLED is absent
-  Serial.print(F("I2C devices:"));              // scan - reveals the joystick's real address
+  Serial.print(F("I2C devices:"));              // scan - logs everything that ACKs
   for (uint8_t a = 8; a < 0x78; a++) { Wire.beginTransmission(a); if (Wire.endTransmission() == 0) Serial.printf(" 0x%02X", a); }
   Serial.println();
-  if (joy.begin(0x49)) {                         // Adafruit Joystick FeatherWing
-    joyXPin = 1;  joyYPin = 15;
-    joyBtnMask = (1UL<<3)|(1UL<<13)|(1UL<<2)|(1UL<<14);
-    joyBtnHome = 13; joyBtnTgt = 2;
-    Serial.println(F("Joystick: FeatherWing @ 0x49"));
-  } else if (joy.begin(0x50)) {                  // Adafruit Gamepad QT
-    joyXPin = 14; joyYPin = 15;
-    joyBtnMask = (1UL<<5)|(1UL<<1)|(1UL<<6)|(1UL<<2)|(1UL<<0)|(1UL<<16);  // A/B/X/Y/Select/Start
-    joyBtnHome = 5;  joyBtnTgt = 1;              // A = home, B = cycle target
-    Serial.println(F("Joystick: Gamepad QT @ 0x50"));
-  } else {
-    Wire.beginTransmission(0x5A);                // nulllab mini-joystick module (raw I2C, not seesaw)
-    if (Wire.endTransmission() == 0) { joyMini = true; Serial.println(F("Joystick: nulllab mini @ 0x5A (raw I2C)")); }
-    else Serial.println(F("Joystick: none (no 0x49/0x50 seesaw, no 0x5A)"));
-    return;
-  }
-  joy.pinModeBulk(joyBtnMask, INPUT_PULLUP);
-  long sx = 0, sy = 0;                           // calibrate centre (average a few reads)
-  for (int i = 0; i < 8; i++) { sx += joy.analogRead(joyXPin); sy += joy.analogRead(joyYPin); delay(3); }
-  joyCenterX = sx / 8; joyCenterY = sy / 8;
-  joyPrevBtn = joy.digitalReadBulk(joyBtnMask);
-  joyPresent = true;
-  Serial.printf("Joystick ready (centre %d,%d)\n", joyCenterX, joyCenterY);
+  Wire.beginTransmission(0x5A);                 // nulllab mini-joystick module (raw I2C registers)
+  if (Wire.endTransmission() == 0) { joyMini = true; Serial.println(F("Joystick: nulllab mini @ 0x5A")); }
+  else Serial.println(F("Joystick: none (no 0x5A on the bus)"));
 }
 
 // Read one register from the nulllab mini-joystick (0x5A): write reg with a full STOP,
@@ -1929,17 +1901,19 @@ int stickStep(int defl, int dead, int8_t &armed, uint32_t &tmr) {
 // target (RATE jog or ABSOLUTE glide), A homes, 5s idle -> MENU. MENU: stick U/D =
 // item, L/R = page, OK = edit/confirm, B = back.
 void readJoystick() {
-  if (!joyEnabled || (!joyPresent && !joyMini)) return;
+  if (!joyEnabled || !joyMini) return;
   uint32_t now = millis();
   if (now - joyLast < JOY_MS) return;
   joyLast = now;
 
-  int xd, yd, dead, full;
-  if (joyMini) {                                    // nulllab: X=reg 0x10, Y=reg 0x11, 0-255 centre 128
-    // Double-read consistency check: a half-seated module can return SUCCESSFUL reads
-    // carrying garbage (railed values), which the -1 failure guard cannot see - measured
-    // on this bench driving the rig to its soft limit unattended. A real stick cannot
-    // teleport between two reads ~1ms apart, so disagreement >30 counts = noise, not input.
+  // nulllab: X=reg 0x10, Y=reg 0x11, 0-255 centre 128.
+  // Double-read consistency check: a half-seated module can return SUCCESSFUL reads
+  // carrying garbage (railed values), which the -1 failure guard cannot see - measured
+  // on this bench driving the rig to its soft limit unattended. A real stick cannot
+  // teleport between two reads ~1ms apart, so disagreement >30 counts = noise, not input.
+  int xd, yd;
+  const int dead = JOY_DEAD, full = JOY_FULL;
+  {
     int rx  = miniRead(0x10), ry  = miniRead(0x11);
     int rx2 = miniRead(0x10), ry2 = miniRead(0x11);
     if (rx < 0 || ry < 0 || rx2 < 0 || ry2 < 0 ||
@@ -1950,23 +1924,13 @@ void readJoystick() {
     joyMiniFails = 0;
     xd = rx2 - 128;                                 // second read: past any bus settling
     yd = ry2 - 128;
-    dead = 25; full = 127;
-  } else {                                          // seesaw: analog 0-1023
-    // Same double-read consistency guard as the mini path (review finding: a bus
-    // glitch returning 0/garbage decoded as full deflection = uncommanded runaway).
-    int rx  = (int)joy.analogRead(joyXPin), ry  = (int)joy.analogRead(joyYPin);
-    int rx2 = (int)joy.analogRead(joyXPin), ry2 = (int)joy.analogRead(joyYPin);
-    if (abs(rx - rx2) > 60 || abs(ry - ry2) > 60) return;   // inconsistent: inert tick
-    xd = rx2 - joyCenterX;
-    yd = ry2 - joyCenterY;
-    dead = JOY_DEAD; full = 511;
   }
 
   // Edge-detected button clicks this tick (event 3 = SINGLE_CLICK on the mini).
   // The stick-click (OK) is stiff to press, so it is unused: C = confirm/edit,
   // D = toggle DRIVE/MENU, A = home, B = back.
   bool bTgl = false, bEnter = false, bB = false, bA = false;
-  if (joyMini) {                                    // read all 5, then dispatch through the remap
+  {                                                 // read all 5 buttons, dispatch through the remap
     static uint8_t pv[5] = { 8, 8, 8, 8, 8 };
     bool click[5];
     for (int i = 0; i < 5; i++) {
@@ -1980,12 +1944,6 @@ void readJoystick() {
       if (v >= 0) pv[i] = (uint8_t)v;
     }
     bA = click[mapHome]; bB = click[mapBack]; bEnter = click[mapEnter]; bTgl = click[mapTgl];
-  } else {                                          // seesaw: two buttons wired -> A(home) + toggle
-    uint32_t bb = joy.digitalReadBulk(joyBtnMask);
-    uint32_t jp = joyPrevBtn & (~bb) & joyBtnMask;
-    joyPrevBtn = bb;
-    bA   = jp & (1UL << joyBtnHome);
-    bTgl = jp & (1UL << joyBtnTgt);
   }
 
   // Button-press feedback: remember which mapped button just clicked so the hint

@@ -152,11 +152,10 @@ the Arduino IDE, or build the whole repo with PlatformIO.
 | `lx16a-servo` | madhephaestus/lx16a-servo | LX-16A serial backend |
 | `U8g2` | olikraus/U8g2 | SH1107 OLED |
 | `Adafruit NeoPixel` | adafruit/Adafruit NeoPixel | WS2812B LEDs |
-| `Adafruit Seesaw Library` | adafruit/Adafruit Seesaw Library | joystick (seesaw fallback path) |
 | `WiFi`, `WebServer`, `Wire`, `Preferences` | bundled with ESP32 core | networking, I²C, NVS |
 
 > The nulllab mini-joystick needs **no library** — it is read directly over `Wire` (see `PROJECT.md`
-> §9a). The seesaw library is only for the alternate seesaw-stick code path.
+> §9a).
 
 **Arduino IDE:** install the **ESP32 board package** (Boards Manager URL
 `https://espressif.github.io/arduino-esp32/package_esp32_index.json`), then the three libraries
@@ -179,7 +178,6 @@ lib_deps =
     madhephaestus/lx16a-servo
     olikraus/U8g2
     adafruit/Adafruit NeoPixel
-    adafruit/Adafruit Seesaw Library
 ```
 
 ---

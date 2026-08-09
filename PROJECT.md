@@ -85,7 +85,7 @@ A single translation unit, organized into commented sections:
 
 | Section | Contents |
 |---|---|
-| Includes | `WiFi`, `WebServer`, `ESP32Servo`, `Wire`, `U8g2lib`, `Preferences`, `Adafruit_NeoPixel`, `Adafruit_seesaw`, `servo_backend.h`, `web_page.h` |
+| Includes | `WiFi`, `WebServer`, `ESP32Servo`, `Wire`, `U8g2lib`, `Preferences`, `Adafruit_NeoPixel`, `servo_backend.h`, `web_page.h` |
 | 3 — Config | all compile-time constants (pins, WiFi, servo range, timing, joystick) |
 | 4 — Servo model + backends | `enum Axis`, `panPos`/`tiltPos`, `bknd`/`backend`, `ctrlTarget`, `driveAngle` router, `ctrlSlot[3]` |
 | 4.5 — Limits/home/glide/NVS | limit + home + speed globals, `homing`, `Preferences prefs` |
