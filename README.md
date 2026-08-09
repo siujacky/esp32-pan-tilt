@@ -10,6 +10,10 @@ saved to flash.
 > Derived from the [ESP32_CAM_pan_tilt](https://github.com/ErroujiOussama/ESP32_CAM_pan_tilt)
 > project — camera removed, control layer rebuilt and extended.
 
+**📖 [Read the Owner's Manual](https://siujacky.github.io/esp32-pan-tilt/manual.html)** — wiring,
+web UI, the OLED cockpit with screen-by-screen figures, smart-servo features, HTTP API, and
+troubleshooting. (Also downloadable from [Releases](../../releases), source at `docs/manual.html`.)
+
 ---
 
 ## Contents
