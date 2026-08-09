@@ -1,0 +1,444 @@
+<meta charset="utf-8">
+<title>ESP32 Pan/Tilt — Owner's Manual</title>
+<style>
+:root{
+  --paper:#f4f6f8; --ink:#16202b; --muted:#5b6b7b; --line:#d5dde5;
+  --accent:#2b6cb0; --accent-ink:#ffffff; --card:#ffffff;
+  --amber:#b45309; --amber-bg:#fdf3e3; --good:#256e42; --good-bg:#e8f5ec;
+  --bezel:#0b0e14; --bezel-edge:#232b38; --px:#dbe9ff; --px-dim:#7d8fae;
+  --code-bg:#eaeef2;
+}
+:root:not([data-theme="light"]){}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#11161d; --ink:#dee7ef; --muted:#8fa1b3; --line:#2a3441;
+    --accent:#5b9bd9; --accent-ink:#0b1016; --card:#181f28;
+    --amber:#e0a256; --amber-bg:#2a2115; --good:#6cc493; --good-bg:#14251b;
+    --code-bg:#1f2833;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#11161d; --ink:#dee7ef; --muted:#8fa1b3; --line:#2a3441;
+  --accent:#5b9bd9; --accent-ink:#0b1016; --card:#181f28;
+  --amber:#e0a256; --amber-bg:#2a2115; --good:#6cc493; --good-bg:#14251b;
+  --code-bg:#1f2833;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font:16px/1.6 "Segoe UI",system-ui,-apple-system,sans-serif;
+  padding:0 20px 90px;
+}
+main{max-width:880px; margin:0 auto}
+.mono,code,td.pin,.reg{font-family:Consolas,"Cascadia Mono","SF Mono",monospace}
+code{background:var(--code-bg); padding:1px 6px; border-radius:4px; font-size:.86em}
+.cover{border-bottom:3px solid var(--ink); padding:52px 0 26px; margin-bottom:36px}
+.eyebrow{font-size:12px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; color:var(--accent)}
+h1{font-size:40px; line-height:1.1; margin:10px 0 8px; letter-spacing:-.01em; text-wrap:balance}
+.cover p{color:var(--muted); max-width:60ch; margin:6px 0 0}
+.covermeta{display:flex; gap:26px; flex-wrap:wrap; margin-top:22px; font-size:13px; color:var(--muted)}
+.covermeta b{color:var(--ink); font-weight:600}
+nav.toc{columns:2; gap:40px; margin:0 0 46px; font-size:14.5px}
+nav.toc a{color:var(--ink); text-decoration:none; display:block; padding:5px 0; border-bottom:1px solid var(--line)}
+nav.toc a:hover,nav.toc a:focus{color:var(--accent)}
+nav.toc a span{color:var(--accent); font-weight:700; margin-right:10px; font-variant-numeric:tabular-nums}
+section{margin:0 0 54px}
+h2{font-size:24px; margin:0 0 4px; letter-spacing:-.005em}
+h2 .no{color:var(--accent); margin-right:12px; font-variant-numeric:tabular-nums}
+.sub{color:var(--muted); font-size:14.5px; margin:0 0 18px}
+h3{font-size:17px; margin:26px 0 8px}
+p{max-width:70ch}
+table{border-collapse:collapse; width:100%; font-size:14.5px; margin:14px 0}
+th{font-size:11.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); text-align:left; padding:8px 12px 6px; border-bottom:2px solid var(--ink)}
+td{padding:8px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+td.pin{font-variant-numeric:tabular-nums; white-space:nowrap}
+.tablewrap{overflow-x:auto}
+.callout{border-left:4px solid var(--amber); background:var(--amber-bg); padding:13px 18px; margin:18px 0; border-radius:0 8px 8px 0; font-size:14.5px}
+.callout b:first-child{color:var(--amber); text-transform:uppercase; font-size:12px; letter-spacing:.12em; display:block; margin-bottom:4px}
+.callout.ok{border-color:var(--good); background:var(--good-bg)}
+.callout.ok b:first-child{color:var(--good)}
+.figrow{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:22px; margin:20px 0}
+figure{margin:0; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px}
+.screen{background:var(--bezel); border:1px solid var(--bezel-edge); border-radius:10px; padding:14px; display:flex; justify-content:center;
+        box-shadow:inset 0 0 24px rgba(120,160,255,.06)}
+.screen svg{width:100%; max-width:264px; height:auto; display:block}
+figcaption{font-size:13px; color:var(--muted); margin-top:11px; line-height:1.5}
+figcaption b{color:var(--ink)}
+.btnmap{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:16px 0}
+.btn{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px}
+.btn .k{display:inline-block; min-width:26px; text-align:center; background:var(--ink); color:var(--paper); border-radius:6px; font-weight:700; padding:2px 7px; font-family:Consolas,monospace}
+.btn p{font-size:13px; color:var(--muted); margin:7px 0 0}
+.flow{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 20px; font-family:Consolas,monospace; font-size:13.5px; overflow-x:auto; white-space:pre; line-height:1.7}
+.parts a{color:var(--accent)}
+ul{padding-left:22px} li{margin:5px 0; max-width:68ch}
+.kv{font-size:14px}
+.kv b{font-variant-numeric:tabular-nums}
+footer{margin-top:60px; padding-top:18px; border-top:1px solid var(--line); font-size:12.5px; color:var(--muted)}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+@media (prefers-reduced-motion:no-preference){ a{transition:color .12s} }
+</style>
+
+<main>
+<div class="cover">
+  <div class="eyebrow">Owner's Manual · Rev 2026-08-09</div>
+  <h1>ESP32 Pan / Tilt Controller</h1>
+  <p>A two-axis camera rig driven three ways — self-contained web page, physical joystick cockpit
+     on a 1.5&Prime; OLED, and an HTTP API — with pluggable servo backends (SG90 PWM or LX-16A serial bus),
+     closed-loop telemetry, and self-calibrating motion.</p>
+  <div class="covermeta">
+    <div>Firmware<br><b>2026-08-09 build · 35-field status</b></div>
+    <div>Board<br><b>ESP32-WROOM (any dev board)</b></div>
+    <div>Display<br><b>SH1107 128×128, I²C 0x3C</b></div>
+    <div>Default IP<br><b class="mono">192.168.4.1 (hotspot)</b></div>
+  </div>
+</div>
+
+<nav class="toc" aria-label="Contents">
+  <a href="#s1"><span>1</span>Parts</a>
+  <a href="#s2"><span>2</span>Wiring &amp; power</a>
+  <a href="#s3"><span>3</span>First start</a>
+  <a href="#s4"><span>4</span>Web control</a>
+  <a href="#s5"><span>5</span>The OLED cockpit</a>
+  <a href="#s6"><span>6</span>Joystick modes</a>
+  <a href="#s7"><span>7</span>Smart-servo features</a>
+  <a href="#s8"><span>8</span>Adding a second servo</a>
+  <a href="#s9"><span>9</span>HTTP API</a>
+  <a href="#s10"><span>10</span>Faults &amp; troubleshooting</a>
+</nav>
+
+<section id="s1">
+  <h2><span class="no">1</span>Parts</h2>
+  <p class="sub">The build this manual documents, with the owner's purchase links.</p>
+  <div class="tablewrap"><table class="parts">
+    <tr><th>Part</th><th>Role</th><th>Link</th></tr>
+    <tr><td>ESP32 dev board (Maker-ESP32, WROOM-32E)</td><td>controller — its onboard 3.5 A motor rail can also power servos properly</td><td class="pin"><a href="https://www.amazon.com/dp/B0GGH9DQBY">B0GGH9DQBY</a></td></tr>
+    <tr><td>LX-16A serial bus servo (×2)</td><td>serial backend · 17 kg·cm @ 6 V / 19.5 @ 7.4 V · 240°</td><td class="pin"><a href="https://www.amazon.com/dp/B0748BQ49M">B0748BQ49M</a></td></tr>
+    <tr><td>SG90 micro servo (×2)</td><td>digital (PWM) backend</td><td class="pin">generic</td></tr>
+    <tr><td>1.5&Prime; SH1107 OLED, 128×128</td><td>cockpit display, I²C <code>0x3C</code></td><td class="pin"><a href="https://www.amazon.com/dp/B0DS129SPD">B0DS129SPD</a></td></tr>
+    <tr><td>nulllab mini joystick</td><td>cockpit input, I²C <code>0x5A</code> — stick + A/B/C/D/OK</td><td class="pin"><a href="https://www.amazon.com/dp/B0GT4SBBL1">B0GT4SBBL1</a></td></tr>
+    <tr><td>WS2812B LEDs (×4)</td><td>corner motion/mood indicators</td><td class="pin">generic</td></tr>
+    <tr><td>7.4 V supply (2S)</td><td>LX-16A power — see §2</td><td class="pin">—</td></tr>
+  </table></div>
+</section>
+
+<section id="s2">
+  <h2><span class="no">2</span>Wiring &amp; power</h2>
+  <p class="sub">Default pins. All three servo pins are settings, not solder — change them from the web page.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Function</th><th>GPIO</th><th>Notes</th></tr>
+    <tr><td>Pan servo signal (PWM)</td><td class="pin">25</td><td>web-settable · Digital tab</td></tr>
+    <tr><td>Tilt servo signal (PWM)</td><td class="pin">26</td><td>web-settable · Digital tab</td></tr>
+    <tr><td>LX-16A serial bus</td><td class="pin">32</td><td>one wire, half-duplex · web-settable · System tab</td></tr>
+    <tr><td>OLED + joystick SDA / SCL</td><td class="pin">21 / 22</td><td>shared I²C bus (<code>0x3C</code> + <code>0x5A</code>)</td></tr>
+    <tr><td>WS2812B data</td><td class="pin">16</td><td>first pixel DIN</td></tr>
+    <tr><td>Status LED</td><td class="pin">2</td><td>onboard · solid STA / slow-blink AP</td></tr>
+  </table></div>
+
+  <div class="callout"><b>Caution — servo power</b>
+    Never power servos from the ESP32's 3V3 or USB 5 V rail. SG90s take an external
+    <b>5 V</b> supply; the LX-16A takes <b>6.0–8.4 V (7.4 V nominal)</b> on its own leads.
+    Tie every supply ground to ESP32 GND — a common ground is mandatory.</div>
+
+  <h3>The LX-16A voltage ladder</h3>
+  <div class="flow">4.5V ──── 6.0V ══════ 7.4V ══════ 8.4V ──────────── 12V+
+alarm-min  spec floor   NOMINAL     spec ceiling      damage
+           (below this: weak, buzzy, hunting)         (motor cooks)</div>
+  <p>The <em>Voltage limit</em> numbers in the servo editor (e.g. 4500–14000&nbsp;mV) are the servo's
+     <b>alarm window</b> — when to flash its LED and cut its own torque — not an operating rating.
+     Factory-wide values mean "never complain". Once running at 7.4 V, tighten the window to about
+     <b>6000–8500</b> so the protection actually protects.</p>
+</section>
+
+<section id="s3">
+  <h2><span class="no">3</span>First start</h2>
+  <ul>
+    <li>On power-up the rig glides both axes to their <b>home</b> angles, then tries your WiFi for ~15 s
+        (status LED fast-blinks).</li>
+    <li><b>Joined:</b> the OLED Connection page shows the router-assigned IP. LED solid.</li>
+    <li><b>No WiFi:</b> it opens hotspot <code>ESP32-PanTilt</code> (pass <code>pantilt123</code>) at
+        <code>192.168.4.1</code>. LED slow-blinks. Provision your network from the web page
+        (System tab → WiFi setup → Scan → join); it saves and reboots onto your network.</li>
+  </ul>
+</section>
+
+<section id="s4">
+  <h2><span class="no">4</span>Web control</h2>
+  <p class="sub">Open the device IP in any browser. Everything is served from the ESP32 — no internet needed.</p>
+  <h3>Main screen</h3>
+  <ul>
+    <li><b>Target tabs</b> — <code>PWM · Serial · Both</code>: which servo set the D-pad drives. Each target
+        keeps its <em>own</em> position, limits, home and speed.</li>
+    <li><b>D-pad</b> — arrows nudge (hold to repeat); center ⌂ glides home.</li>
+    <li><b>Speed / Step slider</b> — degrees per nudge.</li>
+  </ul>
+  <h3>Settings (tap the badge)</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Tab</th><th>Contents</th></tr>
+    <tr><td><b>Rig</b></td><td>soft limits · home position · reset calibration</td></tr>
+    <tr><td><b>Serial</b> <span class="mono">(LX only)</span></td><td>sub-tabs — <b>Main</b>: telemetry, torque-when-parked · <b>IDs</b>: bus scan, link servo IDs, program a servo's ID · <b>Detail</b>: full register editor, servo picked from a dropdown</td></tr>
+    <tr><td><b>Digital</b></td><td>PWM pan/tilt GPIO pickers — used pins are hidden automatically; save reboots onto the new pins</td></tr>
+    <tr><td><b>Joystick</b></td><td>stick enable · RATE / ABSOLUTE · button remap</td></tr>
+    <tr><td><b>System</b></td><td>backend switch (PWM ⇄ LX-16A) · LX bus pin · WiFi setup</td></tr>
+  </table></div>
+</section>
+
+<section id="s5">
+  <h2><span class="no">5</span>The OLED cockpit</h2>
+  <p class="sub">The display + joystick form a phone-free cockpit with two modes. Screens below are
+     rendered 1:1 from the firmware's draw code.</p>
+
+  <div class="btnmap">
+    <div class="btn"><span class="k">D</span> <b>Drive ⇄ Menu</b><p>toggle modes, anytime</p></div>
+    <div class="btn"><span class="k">C</span> <b>Confirm / edit</b><p>enter edit, apply, run actions</p></div>
+    <div class="btn"><span class="k">A</span> <b>Home</b><p>glide home (in DRIVE)</p></div>
+    <div class="btn"><span class="k">B</span> <b>Back</b><p>cancel edit / step out</p></div>
+  </div>
+  <p class="kv">The stick's center-click (OK) is deliberately unused — it's stiff and nudges the stick.
+     All four actions are remappable from the web page only, so a bad map can never lock you out.
+     <b>Every press flashes its hint inverted</b> in the bottom bar (see Fig. 2) — instant feedback that
+     the click registered.</p>
+
+  <div class="flow">          ┌──────── D ────────┐
+          ▼                   │
+   MENU (pages ◄►, items ▲▼, C edit)          DRIVE (stick flies rig)
+          ▲                   │                A home · 5 s idle ─┐
+          └──────── D ◄───────┘◄──────────────────────────────────┘</div>
+
+  <div class="figrow">
+    <figure>
+      <div class="screen">
+      <svg viewBox="0 0 128 128" role="img" aria-label="Config page">
+        <rect width="128" height="128" fill="#05070b"/>
+        <text x="0" y="12" fill="#dbe9ff" font-family="monospace" font-size="10" font-weight="bold">Config</text>
+        <rect x="0" y="15" width="128" height="1" fill="#dbe9ff"/>
+        <rect x="0" y="26" width="128" height="15" fill="#dbe9ff"/>
+        <text x="4" y="38" fill="#05070b" font-family="monospace" font-size="9">Speed</text>
+        <text x="124" y="38" fill="#05070b" font-family="monospace" font-size="9" text-anchor="end">30</text>
+        <text x="4" y="58" fill="#dbe9ff" font-family="monospace" font-size="9">Joy mode</text>
+        <text x="124" y="58" fill="#dbe9ff" font-family="monospace" font-size="9" text-anchor="end">RATE</text>
+        <text x="4" y="78" fill="#dbe9ff" font-family="monospace" font-size="9">Step</text>
+        <text x="124" y="78" fill="#dbe9ff" font-family="monospace" font-size="9" text-anchor="end">5</text>
+        <text x="1" y="110" fill="#7d8fae" font-family="monospace" font-size="6.4">U/D pick  C edit  D fly</text>
+        <g fill="none" stroke="#dbe9ff"><circle cx="34" cy="124" r="2" fill="#dbe9ff"/><circle cx="46" cy="124" r="2"/><circle cx="58" cy="124" r="2"/><circle cx="70" cy="124" r="2"/><circle cx="82" cy="124" r="2"/><circle cx="94" cy="124" r="2"/></g>
+      </svg></div>
+      <figcaption><b>Fig. 1 — MENU · Config.</b> Stick ▲▼ moves the highlight, ◄► changes page
+      (the dots track 6 pages on the LX backend). <b>C</b> edits the selected row.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="screen">
+      <svg viewBox="0 0 128 128" role="img" aria-label="Config page while editing">
+        <rect width="128" height="128" fill="#05070b"/>
+        <text x="0" y="12" fill="#dbe9ff" font-family="monospace" font-size="10" font-weight="bold">Config</text>
+        <rect x="0" y="15" width="128" height="1" fill="#dbe9ff"/>
+        <rect x="0" y="26" width="128" height="15" fill="#dbe9ff"/>
+        <text x="4" y="38" fill="#05070b" font-family="monospace" font-size="9">Speed</text>
+        <text x="124" y="38" fill="#05070b" font-family="monospace" font-size="9" text-anchor="end">35</text>
+        <text x="4" y="58" fill="#dbe9ff" font-family="monospace" font-size="9">Joy mode</text>
+        <text x="124" y="58" fill="#dbe9ff" font-family="monospace" font-size="9" text-anchor="end">RATE</text>
+        <text x="4" y="78" fill="#dbe9ff" font-family="monospace" font-size="9">Step</text>
+        <text x="124" y="78" fill="#dbe9ff" font-family="monospace" font-size="9" text-anchor="end">5</text>
+        <text x="1" y="110" fill="#7d8fae" font-family="monospace" font-size="6.4">U/D change</text>
+        <rect x="46" y="102" width="22" height="10" fill="#dbe9ff"/>
+        <text x="48" y="110" fill="#05070b" font-family="monospace" font-size="6.4">C ok</text>
+        <text x="72" y="110" fill="#7d8fae" font-family="monospace" font-size="6.4">B back</text>
+        <g fill="none" stroke="#dbe9ff"><circle cx="34" cy="124" r="2" fill="#dbe9ff"/><circle cx="46" cy="124" r="2"/><circle cx="58" cy="124" r="2"/><circle cx="70" cy="124" r="2"/><circle cx="82" cy="124" r="2"/><circle cx="94" cy="124" r="2"/></g>
+      </svg></div>
+      <figcaption><b>Fig. 2 — Editing + press feedback.</b> While editing, the value blinks and ▲▼ changes
+      it live. The inverted <span class="mono">C ok</span> chip is the ~0.4 s flash you see whenever a
+      button press registers — on every page.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="screen">
+      <svg viewBox="0 0 128 128" role="img" aria-label="Position page">
+        <rect width="128" height="128" fill="#05070b"/>
+        <text x="0" y="12" fill="#dbe9ff" font-family="monospace" font-size="10" font-weight="bold">Position</text>
+        <text x="88" y="11" fill="#7d8fae" font-family="monospace" font-size="6">reported</text>
+        <rect x="0" y="15" width="128" height="1" fill="#dbe9ff"/>
+        <text x="0" y="36" fill="#dbe9ff" font-family="monospace" font-size="9">Pan</text>
+        <text x="52" y="44" fill="#dbe9ff" font-family="monospace" font-size="20" font-weight="bold">89</text>
+        <rect x="0" y="50" width="128" height="8" fill="none" stroke="#dbe9ff" stroke-width="1"/>
+        <rect x="1" y="51" width="62" height="6" fill="#dbe9ff"/>
+        <rect x="43" y="48" width="1" height="12" fill="#dbe9ff"/><rect x="85" y="48" width="1" height="12" fill="#dbe9ff"/>
+        <circle cx="64" cy="60" r="1.5" fill="#dbe9ff"/>
+        <text x="0" y="78" fill="#dbe9ff" font-family="monospace" font-size="9">Tilt</text>
+        <text x="52" y="82" fill="#dbe9ff" font-family="monospace" font-size="11" font-weight="bold">N/a</text>
+        <rect x="0" y="92" width="128" height="8" fill="none" stroke="#dbe9ff" stroke-width="1"/>
+        <rect x="45" y="90" width="1" height="12" fill="#dbe9ff"/><rect x="86" y="90" width="1" height="12" fill="#dbe9ff"/>
+        <circle cx="64" cy="102" r="1.5" fill="#dbe9ff"/>
+        <text x="1" y="114" fill="#7d8fae" font-family="monospace" font-size="6.4">L/R page  D fly</text>
+        <g fill="none" stroke="#dbe9ff"><circle cx="34" cy="124" r="2"/><circle cx="46" cy="124" r="2" fill="#dbe9ff"/><circle cx="58" cy="124" r="2"/><circle cx="70" cy="124" r="2"/><circle cx="82" cy="124" r="2"/><circle cx="94" cy="124" r="2"/></g>
+      </svg></div>
+      <figcaption><b>Fig. 3 — MENU · Position.</b> On the LX backend the numbers are the servos'
+      <b>own reported angles</b> ("reported" tag). A servo that doesn't answer shows
+      <span class="mono">N/a</span> — never a made-up value. Tick marks = soft limits; dot = home.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="screen">
+      <svg viewBox="0 0 128 128" role="img" aria-label="Servo Bus page">
+        <rect width="128" height="128" fill="#05070b"/>
+        <text x="0" y="12" fill="#dbe9ff" font-family="monospace" font-size="10" font-weight="bold">Servo Bus</text>
+        <rect x="0" y="15" width="128" height="1" fill="#dbe9ff"/>
+        <text x="0" y="32" fill="#dbe9ff" font-family="monospace" font-size="8.4">LX16A  id 1/2</text>
+        <text x="0" y="50" fill="#dbe9ff" font-family="monospace" font-size="8.4">Pan  5.0V 39C</text>
+        <text x="0" y="68" fill="#dbe9ff" font-family="monospace" font-size="8.4">Tilt --</text>
+        <text x="0" y="86" fill="#dbe9ff" font-family="monospace" font-size="8.4">Act  89 / --</text>
+        <text x="0" y="104" fill="#dbe9ff" font-family="monospace" font-size="8.4">FAULT 0x02</text>
+        <text x="1" y="118" fill="#7d8fae" font-family="monospace" font-size="6.4">Bus: 1   C rescan</text>
+        <g fill="none" stroke="#dbe9ff"><circle cx="34" cy="124" r="2"/><circle cx="46" cy="124" r="2"/><circle cx="58" cy="124" r="2"/><circle cx="70" cy="124" r="2"/><circle cx="82" cy="124" r="2" fill="#dbe9ff"/><circle cx="94" cy="124" r="2"/></g>
+      </svg></div>
+      <figcaption><b>Fig. 4 — MENU · Servo Bus.</b> Live voltage / temperature / measured angle per servo.
+      Press <b>C</b> to rescan the bus; found IDs list in the footer. <span class="mono">FAULT 0x02</span>
+      here = supply under-voltage (§10).</figcaption>
+    </figure>
+
+    <figure>
+      <div class="screen">
+      <svg viewBox="0 0 128 128" role="img" aria-label="Servo editor page">
+        <rect width="128" height="128" fill="#05070b"/>
+        <text x="0" y="12" fill="#dbe9ff" font-family="monospace" font-size="10" font-weight="bold">Servo</text>
+        <text x="100" y="11" fill="#7d8fae" font-family="monospace" font-size="6">id 1</text>
+        <rect x="0" y="15" width="128" height="1" fill="#dbe9ff"/>
+        <rect x="0" y="20" width="128" height="15" fill="#dbe9ff"/>
+        <text x="4" y="32" fill="#05070b" font-family="monospace" font-size="8.4">Servo</text>
+        <text x="124" y="32" fill="#05070b" font-family="monospace" font-size="8.4" text-anchor="end">PAN</text>
+        <text x="4" y="48" fill="#dbe9ff" font-family="monospace" font-size="8.4">Bus ID</text>
+        <text x="124" y="48" fill="#dbe9ff" font-family="monospace" font-size="8.4" text-anchor="end">1</text>
+        <text x="4" y="64" fill="#dbe9ff" font-family="monospace" font-size="8.4">Lim min</text>
+        <text x="124" y="64" fill="#dbe9ff" font-family="monospace" font-size="8.4" text-anchor="end">0</text>
+        <text x="4" y="80" fill="#dbe9ff" font-family="monospace" font-size="8.4">Lim max</text>
+        <text x="124" y="80" fill="#dbe9ff" font-family="monospace" font-size="8.4" text-anchor="end">1000</text>
+        <text x="4" y="96" fill="#dbe9ff" font-family="monospace" font-size="8.4">Trim</text>
+        <text x="124" y="96" fill="#dbe9ff" font-family="monospace" font-size="8.4" text-anchor="end">0</text>
+        <text x="118" y="100" fill="#7d8fae" font-family="monospace" font-size="7">v</text>
+        <text x="0" y="108" fill="#7d8fae" font-family="monospace" font-size="6.4">pos 89  5.0V  39C</text>
+        <text x="1" y="118" fill="#7d8fae" font-family="monospace" font-size="6.4">U/D  C edit  B back</text>
+        <g fill="none" stroke="#dbe9ff"><circle cx="34" cy="124" r="2"/><circle cx="46" cy="124" r="2"/><circle cx="58" cy="124" r="2"/><circle cx="70" cy="124" r="2"/><circle cx="82" cy="124" r="2"/><circle cx="94" cy="124" r="2" fill="#dbe9ff"/></g>
+      </svg></div>
+      <figcaption><b>Fig. 5 — MENU · Servo editor.</b> All 14 LX-16A settings in a scrolling list
+      (the <span class="mono">v</span> marks more below): axis link, angle limits, trim + EEPROM save,
+      voltage/temp windows, torque, LED, alarm mask, servo/motor mode + speed.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="screen">
+      <svg viewBox="0 0 128 128" role="img" aria-label="Drive HUD">
+        <rect width="128" height="128" fill="#05070b"/>
+        <text x="0" y="12" fill="#dbe9ff" font-family="monospace" font-size="10" font-weight="bold">DRIVE</text>
+        <text x="84" y="11" fill="#7d8fae" font-family="monospace" font-size="6">RATE</text>
+        <rect x="0" y="15" width="128" height="1" fill="#dbe9ff"/>
+        <text x="0" y="36" fill="#dbe9ff" font-family="monospace" font-size="9">Pan</text>
+        <text x="52" y="44" fill="#dbe9ff" font-family="monospace" font-size="20" font-weight="bold">89</text>
+        <rect x="0" y="50" width="128" height="8" fill="none" stroke="#dbe9ff" stroke-width="1"/>
+        <rect x="1" y="51" width="62" height="6" fill="#dbe9ff"/>
+        <rect x="43" y="48" width="1" height="12" fill="#dbe9ff"/><rect x="85" y="48" width="1" height="12" fill="#dbe9ff"/>
+        <text x="0" y="78" fill="#dbe9ff" font-family="monospace" font-size="9">Tilt</text>
+        <text x="52" y="86" fill="#dbe9ff" font-family="monospace" font-size="20" font-weight="bold">90</text>
+        <rect x="0" y="92" width="128" height="8" fill="none" stroke="#dbe9ff" stroke-width="1"/>
+        <rect x="1" y="93" width="63" height="6" fill="#dbe9ff"/>
+        <rect x="45" y="90" width="1" height="12" fill="#dbe9ff"/><rect x="86" y="90" width="1" height="12" fill="#dbe9ff"/>
+        <text x="1" y="118" fill="#7d8fae" font-family="monospace" font-size="6.4">D menu   A home</text>
+      </svg></div>
+      <figcaption><b>Fig. 6 — DRIVE HUD.</b> The stick flies the active target; the header shows the
+      joystick mode. After 5 s without stick input it returns to MENU on its own.</figcaption>
+    </figure>
+  </div>
+  <p class="kv">Two more MENU pages not pictured: <b>Calibration</b> (step, home speed, both limit windows,
+     home, uptime) and <b>Connection</b> (WiFi mode, SSID, IP — where you find the address after provisioning).</p>
+</section>
+
+<section id="s6">
+  <h2><span class="no">6</span>Joystick modes</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Mode</th><th>Behavior</th><th>Good for</th></tr>
+    <tr><td><b>RATE</b> (default)</td><td>hold the stick to jog — further = faster</td><td>framing, fine positioning</td></tr>
+    <tr><td><b>ABSOLUTE</b></td><td>stick position maps to an angle; the rig glides there, never snaps</td><td>repeatable pointing</td></tr>
+  </table></div>
+  <ul>
+    <li>Switch modes on the OLED Config page or the web Joystick tab.</li>
+    <li><b>Glitch-proof input:</b> failed or inconsistent I²C reads are discarded, never interpreted as
+        stick motion. After 100 consecutive failures the stick is declared offline until reboot.</li>
+    <li>Remapping the four buttons is <b>web-only</b> by design — the stick can't rebind itself.</li>
+  </ul>
+</section>
+
+<section id="s7">
+  <h2><span class="no">7</span>Smart-servo features <span class="mono" style="font-size:13px;color:var(--muted)">(LX-16A backend)</span></h2>
+  <h3>Auto-trim — the staircase</h3>
+  <p>An undervolted or loaded servo can land short of its commanded angle and grind against the gap.
+     After every move settles, the firmware reads where the servo <em>actually</em> landed; if it's ≥2° short
+     it re-commands past the target by the shortfall (up to two bumps), then <b>remembers the overshoot
+     that worked</b> — per axis, per direction — and applies it to the first command next time.
+     Inspect or reset the learned values at <code>GET /lxcal</code>.</p>
+  <h3>Accept-reality park</h3>
+  <p>If the staircase runs out of bumps with ≤2° of error left, the rig adopts the servo's reported
+     position as the truth and re-commands <em>at</em> it — the motor rests instead of pushing forever,
+     and the displays show the real angle.</p>
+  <h3>Torque release when parked</h3>
+  <p><b>Serial → Main → "Torque when parked"</b>. Three seconds after a move settles, torque releases —
+     fully silent, zero hold current. Any new command re-engages it first.
+     <span class="mono">Caution:</span> a released axis won't hold an unbalanced load against gravity —
+     keep "Hold" for a heavy tilt.</p>
+  <div class="callout ok"><b>Verified</b> Commanded 90° → measured 89–90° closed-loop on this rig;
+     trim, park and release all exercised on hardware against a live LX-16A.</div>
+</section>
+
+<section id="s8">
+  <h2><span class="no">8</span>Adding a second servo</h2>
+  <p class="sub">Every LX-16A ships as ID 1, so program the newcomer before joining the bus.</p>
+  <div class="flow">1  Serial → IDs → Bus scan        confirm what's already there (your first servo: ID 1)
+2  connect ONLY the new servo      unplug the first one for a moment
+3  IDs → Program servo ID → 2      uses the safe lone-servo flow, verifies after writing
+4  reconnect both → Bus scan       should list ID 1 and ID 2
+5  IDs → Link servo IDs            point Tilt at ID 2
+6  Detail → pick ID 2              set its limits / trim / alarm window</div>
+</section>
+
+<section id="s9">
+  <h2><span class="no">9</span>HTTP API</h2>
+  <p class="sub">Everything the UIs do is plain GET. <code>/action</code> and <code>/status</code> return the same
+     35-field CSV (append-only — old clients keep working).</p>
+  <div class="tablewrap"><table>
+    <tr><th>Request</th><th>Action</th></tr>
+    <tr><td class="pin">/action?go=B,L·R·U·D</td><td>nudge pan/tilt by one step</td></tr>
+    <tr><td class="pin">/action?go=B,H</td><td>glide home</td></tr>
+    <tr><td class="pin">/action?go=S,&lt;n&gt; · V,&lt;n&gt;</td><td>step size · home speed</td></tr>
+    <tr><td class="pin">/action?go=T,&lt;0|1|2&gt;</td><td>control target: PWM · LX · Both</td></tr>
+    <tr><td class="pin">/action?go=J,&lt;0|1&gt; · Y,&lt;0|1&gt; · R,&lt;0|1&gt;</td><td>joystick enable · RATE/ABS · torque release</td></tr>
+    <tr><td class="pin">/action?go=K,&lt;HM|BK|EN|TG&gt;,&lt;0-4&gt;</td><td>remap a cockpit button</td></tr>
+    <tr><td class="pin">/servoscan · /servoid · /servocfg</td><td>bus discovery · ID programming · register read/write</td></tr>
+    <tr><td class="pin">/lxprobe · /lxcal · /lxwiggle</td><td>read-only scan · auto-trim data · broadcast move test</td></tr>
+    <tr><td class="pin">/lxtx · /lxpintest · /lxfix</td><td>wire-level TX proof · line check · bus re-arm</td></tr>
+    <tr><td class="pin">/setbackend · /setlxpin · /setpwmpins</td><td>backend / pin changes (validate → persist → reboot)</td></tr>
+    <tr><td class="pin">/scan · /setwifi · /forgetwifi</td><td>WiFi provisioning</td></tr>
+  </table></div>
+</section>
+
+<section id="s10">
+  <h2><span class="no">10</span>Faults &amp; troubleshooting</h2>
+  <h3>Fault byte <span class="mono" style="font-size:13px">(status field 23, OLED Servo Bus page)</span></h3>
+  <div class="tablewrap"><table>
+    <tr><th>Bit</th><th>Pan</th><th>Tilt</th><th>Meaning</th></tr>
+    <tr><td class="pin">0x01 / 0x10</td><td>●</td><td>●</td><td>over-temperature</td></tr>
+    <tr><td class="pin">0x02 / 0x20</td><td>●</td><td>●</td><td>supply voltage outside 6.0–8.4 V</td></tr>
+    <tr><td class="pin">0x04 / 0x40</td><td>●</td><td>●</td><td>stall — commanded vs measured angle diverges</td></tr>
+    <tr><td class="pin">0x08 / 0x80</td><td>●</td><td>●</td><td>bus dead — a servo that once answered went silent</td></tr>
+  </table></div>
+  <h3>Quick fixes</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Symptom</th><th>Do this</th></tr>
+    <tr><td>Servo buzzes/grinds while parked</td><td>raise supply toward 7.4 V; or enable torque release (§7)</td></tr>
+    <tr><td>LX servo won't move at all</td><td><code>/lxtx</code> proves the wire; <code>/lxwiggle</code> moves any ID; check 6–8.4 V at the servo plug and common ground</td></tr>
+    <tr><td>Rig moves by itself / menu flips</td><td>reseat the joystick's 4 wires (glitches are ignored, but a solid connection restores control)</td></tr>
+    <tr><td>Scan finds nothing</td><td><code>/lxfix</code> re-arms the bus; verify the bus pin (System tab) matches the wiring</td></tr>
+    <tr><td>OLED dark or shifted</td><td>check 3V3 + SDA21/SCL22; the firmware logs <code>OLED OK at 0x3C</code> on serial</td></tr>
+    <tr><td>Forgot the IP</td><td>OLED Connection page shows it; hotspot fallback is always <code>192.168.4.1</code></td></tr>
+  </table></div>
+</section>
+
+<footer>ESP32 Pan/Tilt Controller · firmware 2026-08-09 · manual generated from source
+(<span class="mono">esp32_pan_tilt.ino · servo_backend.h · web_page.h</span>). Screens are 1:1
+recreations of the SH1107 draw code, not photographs.</footer>
+</main>
