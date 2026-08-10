@@ -268,8 +268,11 @@ changes write a single key immediately (user-paced; NVS wear-levels).
 ## 7. WiFi subsystem
 
 **mDNS + OTA.** The device registers `pantilt.local` (mDNS, STA and AP alike; DHCP hostname
-`pantilt`). Wireless flashing runs over ArduinoOTA (`pio run -e esp32ota -t upload`, password =
-`AP_PASS`); `onStart` stops any range test and home glide before flash writes begin. The partition
+`pantilt`). Wireless flashing has two paths, both password-gated with `AP_PASS` and both stopping
+any range test/glide first: ArduinoOTA (`pio run -e esp32ota -t upload`) and a **browser upload**
+(`POST /update?pw=…`, System tab → Firmware update) that streams the multipart `.bin` into the
+spare OTA slot via `Update.h` and reboots onto it. Verified: a wrong password is rejected with
+nothing written; a correct upload of the full image flashed, rebooted, and preserved all settings. The partition
 table is `min_spiffs` (two 1.9 MB OTA app slots; NVS/otadata/app0 offsets match the default table,
 so stored settings survived the switch — verified).
 

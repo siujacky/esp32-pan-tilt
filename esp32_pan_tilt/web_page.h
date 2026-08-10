@@ -224,6 +224,22 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
     </div>
 
     <div class="card" data-g="sys">
+      <div class="panel-h"><span>Firmware update</span><span id="fwSum" class="sum"></span></div>
+      <div class="row">
+        <input type="file" id="fwFile" accept=".bin" aria-label="Firmware .bin file"
+               style="flex:1 1 0; min-width:0; font-size:12px; color:var(--muted);">
+        <button type="button" class="act" id="fwGo">Upload</button>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <input type="password" id="fwPw" placeholder="update password" autocomplete="off" aria-label="Update password">
+      </div>
+      <div id="fwMsg" class="wmsg">Pick the built <code>firmware.bin</code> (PlatformIO:
+        <code>.pio/build/esp32dev/firmware.bin</code>), enter the update password (same as the
+        hotspot password), and Upload. The rig flashes the spare OTA slot and reboots onto it
+        &mdash; about 30&nbsp;s. Any running test or glide is stopped first.</div>
+    </div>
+
+    <div class="card" data-g="sys">
       <div class="panel-h"><span>WiFi setup</span><span id="wCur" class="sum"></span></div>
       <button type="button" class="act wide" id="wScan">Scan networks</button>
       <div class="cell" style="margin-bottom:12px;">
@@ -594,6 +610,34 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   var joyEn = $('joyEn'), joyMd = $('joyMd'), joySum = $('joySum'), kbWarn = $('kbWarn');
   var lxPin = $('lxPin'), lxPinSave = $('lxPinSave'), lxPinMsg = $('lxPinMsg');
   var lxRelaxSel = $('lxRelaxSel');
+  var fwFile = $('fwFile'), fwGo = $('fwGo'), fwMsg = $('fwMsg'), fwSum = $('fwSum');
+  if (fwGo) fwGo.addEventListener('click', function(){
+    if (!fwFile.files || !fwFile.files[0]){ fwMsg.textContent = 'pick a .bin file first'; return; }
+    var pw = $('fwPw') ? $('fwPw').value : '';
+    if (!pw){ fwMsg.textContent = 'enter the update password'; return; }
+    var fd = new FormData();
+    fd.append('firmware', fwFile.files[0]);
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/update?pw=' + encodeURIComponent(pw));
+    xhr.upload.onprogress = function(e){
+      if (e.lengthComputable && fwSum) fwSum.textContent = Math.round(e.loaded * 100 / e.total) + '%';
+    };
+    xhr.onload = function(){
+      var t = String(xhr.responseText || '');
+      if (xhr.status === 200 && t.indexOf('ok') === 0){
+        fwMsg.textContent = 'flashed - rebooting, page will reconnect in ~20 s';
+        if (fwSum) fwSum.textContent = 'done';
+      } else {
+        fwMsg.textContent = 'rejected - ' + (t.split(String.fromCharCode(9))[1] || t || 'upload failed');
+        if (fwSum) fwSum.textContent = '';
+      }
+    };
+    xhr.onerror = function(){ fwMsg.textContent = 'connection lost (normal if it rebooted mid-reply)'; };
+    fwGo.disabled = true;
+    setTimeout(function(){ fwGo.disabled = false; }, 8000);
+    fwMsg.textContent = 'uploading...';
+    xhr.send(fd);
+  });
   var pBtns = [$('pb0'), $('pb1'), $('pb2'), $('pb3')], pSave = $('pSave'), pClear = $('pClear'), pMode = $('pMode');
   var pArm = 'R';
   function pSetArm(m){

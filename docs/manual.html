@@ -190,7 +190,7 @@ alarm-min  spec floor   NOMINAL     spec ceiling      damage
     <tr><td><b>Digital</b></td><td>PWM pan/tilt GPIO pickers — used pins are hidden automatically; save reboots onto the new pins</td></tr>
     <tr><td><b>Joystick</b></td><td>stick enable · RATE / ABSOLUTE · button remap</td></tr>
     <tr><td><b>Test</b></td><td>full-range servo sweep with collision watch — see §7</td></tr>
-    <tr><td><b>System</b></td><td>backend switch (PWM ⇄ LX-16A) · LX bus pin · WiFi setup</td></tr>
+    <tr><td><b>System</b></td><td>backend switch (PWM ⇄ LX-16A) · LX bus pin · <b>firmware update from the browser</b> (pick <code>firmware.bin</code>, password, progress bar) · WiFi setup</td></tr>
   </table></div>
 </section>
 
@@ -451,6 +451,7 @@ alarm-min  spec floor   NOMINAL     spec ceiling      damage
     <tr><td class="pin">/lxprobe · /lxcal · /lxwiggle</td><td>read-only scan · auto-trim data · broadcast move test</td></tr>
     <tr><td class="pin">/lxtx · /lxpintest · /lxfix</td><td>wire-level TX proof · line check · bus re-arm</td></tr>
     <tr><td class="pin">/setbackend · /setlxpin · /setpwmpins</td><td>backend / pin changes (validate → persist → reboot)</td></tr>
+    <tr><td class="pin">POST /update?pw=&lt;pass&gt;</td><td>browser firmware upload — flashes the spare OTA slot, reboots</td></tr>
     <tr><td class="pin">/scan · /setwifi · /forgetwifi</td><td>WiFi provisioning</td></tr>
   </table></div>
 </section>

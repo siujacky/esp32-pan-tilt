@@ -19,6 +19,7 @@
 #include <Preferences.h>   // NVS persistence (namespace "pantilt")
 #include <ESPmDNS.h>       // http://pantilt.local (no more IP hunting)
 #include <ArduinoOTA.h>    // wireless firmware updates (needs the min_spiffs partition table)
+#include <Update.h>        // browser-based firmware upload (POST /update)
 #include <Adafruit_NeoPixel.h>   // WS2812B corner LEDs on GPIO 16
 #include "web_page.h"        // provides: const char INDEX_HTML[] PROGMEM
 #include "servo_backend.h"   // ServoBackend seam: enum Axis, PwmBackend (default) + Lx16aBackend, LX helpers
@@ -1175,6 +1176,44 @@ void handleSetBackend() {
   Serial.printf("Backend set to %d (%s), restarting...\n", bknd, bknd ? "LX16A" : "PWM");
   delay(400);                 // let the response flush before we reboot
   ESP.restart();
+}
+
+// POST /update?pw=<AP_PASS>  -> browser firmware upload (multipart .bin). Writes the
+// inactive OTA slot via Update.h; on success replies then reboots onto the new image.
+// Same password as ArduinoOTA/the hotspot - hobby-LAN grade, never wide open. Any
+// running range test or glide is stopped before flash writes begin.
+bool webOtaAuthed = false;
+
+void handleUpdateDone() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  if (!webOtaAuthed) { server.send(401, "text/plain", "fail\tbad_password"); return; }
+  bool ok = !Update.hasError();
+  server.send(200, "text/plain", ok ? "ok - rebooting onto the new firmware" : "fail\tflash_error");
+  Serial.printf("Web OTA: %s\n", ok ? "success, restarting" : "FAILED");
+  if (ok) { delay(400); ESP.restart(); }
+}
+
+void handleUpdateUpload() {
+  HTTPUpload& up = server.upload();
+  if (up.status == UPLOAD_FILE_START) {
+    webOtaAuthed = (server.arg("pw") == AP_PASS);
+    if (!webOtaAuthed) { Serial.println(F("Web OTA: rejected (bad password)")); return; }
+    servoTestStop();                       // no motion while flash writes stall the loop
+    homing = false;
+    Serial.printf("Web OTA: receiving %s\n", up.filename.c_str());
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN)) Update.printError(Serial);
+  } else if (up.status == UPLOAD_FILE_WRITE) {
+    if (webOtaAuthed && Update.write(up.buf, up.currentSize) != up.currentSize)
+      Update.printError(Serial);
+  } else if (up.status == UPLOAD_FILE_END) {
+    if (webOtaAuthed && Update.end(true))
+      Serial.printf("Web OTA: %u bytes written\n", up.totalSize);
+    else if (webOtaAuthed)
+      Update.printError(Serial);
+  } else if (up.status == UPLOAD_FILE_ABORTED) {
+    if (webOtaAuthed) Update.abort();
+    Serial.println(F("Web OTA: aborted"));
+  }
 }
 
 // GET /setpwmpins?pan=<gpio>&tilt=<gpio>  -> validate both, persist, reboot onto the new
@@ -2488,6 +2527,7 @@ void setup() {
   server.on("/lxfix",      HTTP_GET, handleLxFix);        // force half-duplex re-arm + sweep
   server.on("/lxcal",      HTTP_GET, handleLxCal);        // auto-trim: learned overshoots + records
   server.on("/servotest",  HTTP_GET, handleServoTest);    // slow full-range sweep + collision watch
+  server.on("/update", HTTP_POST, handleUpdateDone, handleUpdateUpload);   // browser firmware upload
   server.on("/servoscan",  HTTP_GET, handleServoScan);    // LX-16A bus discovery
   server.on("/servoid",    HTTP_GET, handleServoId);      // LX-16A safe ID programming
   server.on("/servocfg",   HTTP_GET, handleServoCfg);     // LX-16A per-servo config read/write

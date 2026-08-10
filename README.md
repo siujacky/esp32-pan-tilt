@@ -61,8 +61,10 @@ troubleshooting. (Also downloadable from [Releases](../../releases), source at `
   own hotspot so it's never unreachable.
 - **WiFi provisioning** — scan for networks and join one **from the web page** (no re-flashing).
 - **mDNS** — the rig is always at **`http://pantilt.local`** (STA or hotspot); no IP hunting.
-- **OTA updates** — flash wirelessly with `pio run -e esp32ota -t upload` (password = the hotspot
-  pass). Any running test/glide is stopped before the flash writes begin.
+- **OTA updates, two ways** — from PlatformIO (`pio run -e esp32ota -t upload`) or **straight
+  from the web page** (System tab → Firmware update: pick `firmware.bin`, enter the password,
+  watch the progress bar). Password = the hotspot pass; any running test/glide is stopped before
+  the flash writes begin.
 - **128×128 SH1107 OLED** — an interactive **cockpit**: a live DRIVE HUD and joystick-navigated
   MENU pages (Config / Position / Calibration / Connection / Servo Bus).
 - **4× WS2812B motion LEDs** — a slow rainbow **mood light** when idle, and a **per-direction
@@ -335,6 +337,7 @@ All `/action` and `/status` responses are `text/plain` with header
 | `GET /servocfg?…` | read / write an LX-16A servo's limits + torque |
 | `GET /setbackend?…` | switch the servo backend (PWM ⇄ LX-16A); persists and reboots |
 | `GET /setlxpin?pin=<n>` | set the LX-16A bus GPIO; validates, persists and reboots (`fail⇥reason` if unusable) |
+| `POST /update?pw=<pass>` | browser firmware upload (multipart `.bin`) — flashes the spare OTA slot and reboots |
 | `GET /setpwmpins?pan=<n>&tilt=<n>` | set the PWM servo GPIOs; validates the pair (collisions included), persists and reboots |
 | `GET /lxprobe[?hi=N]` | read-only bus scan (default IDs 1–12): ID, voltage, temp, position per servo; works in both backends, no reboot, nothing moves |
 | `GET /lxpintest` | electrical check on the bus pin (driven high / tied to ground / free); fully re-arms the bus after |

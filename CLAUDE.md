@@ -66,7 +66,8 @@ Read `lessonlearn.md` before debugging anything: 23 hard-won lessons, each one c
 3. **7.4 V supply** — watch `/lxcal` trims decay to ~0 and fault 0x02 clear as confirmation.
 4. Settings export/import; auth if it ever leaves the LAN.
 5. Watch for the bench power gremlin (now mostly defanged: **prefer OTA flashing** —
-   `pio run -e esp32ota -t upload`, target `pantilt.local`).
+   `pio run -e esp32ota -t upload`, or the browser path: System tab → Firmware update /
+   `curl -F "firmware=@.pio/build/esp32dev/firmware.bin" "http://pantilt.local/update?pw=…"`).
 
 **Tooling hazard (cost a live outage):** NEVER pass backslash escape sequences through the bash
 heredoc path — it collapses them a layer before Python, so patches write real newlines into JS
