@@ -568,6 +568,33 @@ as "flaky button" but is really "the page left while you pressed it."
 
 ---
 
+## 24. The tool between you and the file can mangle your escapes - twice
+
+**Symptom.** The live web page died with `Uncaught SyntaxError` - the served JavaScript contained
+`split('` followed by a REAL newline: an unterminated string, killing the page's entire script.
+
+**Root cause.** The patch that wrote that JS was piped through a shell heredoc into Python. That
+path collapsed the escape sequence one layer early, so the file received a literal newline where
+the JS needed a two-character backslash-n. **Worse:** three successive repair attempts through the
+same path all silently no-opped, because the mangling hit the pattern AND the replacement equally -
+search-for-broken, replace-with-identically-broken. Each pass even *reported* success.
+
+**Fix.** Write patch scripts to disk with a faithful file-writing tool, never inline through the
+shell; and when escape bytes matter, construct them from `chr()` so no layer can reinterpret them.
+The definitive repair replaced 3 sites and a byte-level scan confirmed zero raw newlines remained
+inside string literals.
+
+**Takeaways.**
+- When a fix reports success but the symptom persists, **diff the bytes**, not the intent - the
+  file is the only truth (same instinct as lesson 19's crash-hidden-behind-a-pipe).
+- A no-op repair that shares the broken pipeline with the original bug will *confirm itself*:
+  pattern and replacement mangle the same way. Verify through a DIFFERENT channel (byte counts).
+- Generated-code-inside-string-literals (JS inside a C++ raw string) is doubly fragile: two
+  escape layers, and the compiler cannot see the inner language at all. The page loads or it
+  does not - so curl the served page after every web_page.h change.
+
+---
+
 ## Meta-lessons
 
 - **Verify with evidence.** Every "is it working?" was answered with a real signal — a serial probe

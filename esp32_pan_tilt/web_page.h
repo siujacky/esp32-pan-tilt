@@ -195,6 +195,22 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
     <input type="range" id="step" min="1" max="30" value="5" aria-label="Step size in degrees">
   </div>
 
+  <div class="card">
+    <div class="panel-h"><span>Presets</span><span id="pMode" class="sum"></span></div>
+    <div class="grid" style="grid-template-columns:repeat(4,1fr);">
+      <button type="button" class="act" id="pb0">1</button>
+      <button type="button" class="act" id="pb1">2</button>
+      <button type="button" class="act" id="pb2">3</button>
+      <button type="button" class="act" id="pb3">4</button>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <button type="button" class="act" id="pSave">Save to&hellip;</button>
+      <button type="button" class="act" id="pClear">Clear&hellip;</button>
+    </div>
+    <div class="wmsg">Tap a slot to glide there. Arm <b>Save to&hellip;</b> (or Clear) then tap the
+      slot. Presets are kept per servo-set (the PWM / Serial / Both tabs).</div>
+  </div>
+
   <div id="adv" class="adv" hidden>
 
     <!-- Config groups as tabs (user request): find settings without scrolling a long stack. -->
@@ -578,6 +594,18 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   var joyEn = $('joyEn'), joyMd = $('joyMd'), joySum = $('joySum'), kbWarn = $('kbWarn');
   var lxPin = $('lxPin'), lxPinSave = $('lxPinSave'), lxPinMsg = $('lxPinMsg');
   var lxRelaxSel = $('lxRelaxSel');
+  var pBtns = [$('pb0'), $('pb1'), $('pb2'), $('pb3')], pSave = $('pSave'), pClear = $('pClear'), pMode = $('pMode');
+  var pArm = 'R';
+  function pSetArm(m){
+    pArm = m;
+    if (pMode) pMode.textContent = (m === 'S') ? 'tap a slot to SAVE' : (m === 'X') ? 'tap a slot to CLEAR' : '';
+  }
+  if (pSave)  pSave.addEventListener('click',  function(){ pSetArm(pArm === 'S' ? 'R' : 'S'); });
+  if (pClear) pClear.addEventListener('click', function(){ pSetArm(pArm === 'X' ? 'R' : 'X'); });
+  pBtns.forEach(function(b, i){
+    if (!b) return;
+    b.addEventListener('click', function(){ send('P,' + pArm + ',' + (i + 1)); pSetArm('R'); });
+  });
   var testId = $('testId'), testOut = $('testOut'), testSum = $('testSum');
   var testTimer = null;
 
@@ -585,13 +613,11 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   function testPoll(){
     fetch('/servotest').then(function(r){ return r.text(); }).then(function(t){
       var kv = {};
-      String(t).split('
-').forEach(function(ln){ var i = ln.indexOf('	'); if (i > 0) kv[ln.slice(0, i)] = ln.slice(i + 1); });
+      String(t).split('\n').forEach(function(ln){ var i = ln.indexOf('\t'); if (i > 0) kv[ln.slice(0, i)] = ln.slice(i + 1); });
       var s = kv.state || '?';
       if (testSum) testSum.textContent = s;
       if (testOut) testOut.textContent = s + '  ·  cmd ' + (kv.cmd || '-') + '°  actual ' +
-        ((kv.actual === '-1') ? 'n/a' : (kv.actual || '-') + '°') + '
-' + (kv.msg || '');
+        ((kv.actual === '-1') ? 'n/a' : (kv.actual || '-') + '°') + '\n' + (kv.msg || '');
       if (s === 'idle' && testTimer){ clearInterval(testTimer); testTimer = null; }
     }).catch(function(){});
   }
@@ -709,6 +735,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   //   24: ctrlTarget  25: joyPresent  26: joyEnabled  27: joyMode
   //   28-31: button remap (home, back, confirm, toggle) as index 0..4 = A/B/C/D/OK
   //   32: lxpin (LX-16A one-wire bus GPIO, applied at boot)
+  //   33: lxRelax  34-35: pwm pan/tilt GPIOs  36-43: presets (pan,tilt)x4 of the active target
   //   33: lxRelax (idle torque release: 0 hold / 1 release after 3s)
   function applyState(txt){
     var p = String(txt).split(',');
@@ -766,6 +793,12 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
     }
     if (p.length >= 32) setIdle(lxPin, p[31]);          // field 32 = live LX bus GPIO
     if (p.length >= 33) setSelIdle(lxRelaxSel, p[32]);  // field 33 = idle torque release
+    if (p.length >= 43 && pBtns[0]){                    // fields 36-43 = active target's presets
+      for (var pi = 0; pi < 4; pi++){
+        var pp = p[35 + pi * 2], pt = p[36 + pi * 2];
+        pBtns[pi].textContent = (pp === '-1') ? ((pi + 1) + ': —') : ((pi + 1) + ': ' + pp + '/' + pt);
+      }
+    }
     if (p.length >= 35){                                // fields 34/35 = PWM pan/tilt GPIOs
       lastLxPin = parseInt(p[31], 10);
       if (pwmPanSel  && !pwmPanSel.value)  { rebuildPinSel(pwmPanSel,  null); pwmPanSel.value  = p[33]; }

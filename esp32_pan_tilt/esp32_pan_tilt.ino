@@ -175,9 +175,44 @@ int  homeSpeed = 90;                  // home glide speed, deg/sec
 const int HSPEED_MIN = 10;
 const int HSPEED_MAX = 300;
 
-bool        homing     = false;       // a smooth home glide is in progress
+bool        homing     = false;       // a smooth glide is in progress (home OR preset recall)
 uint32_t    homeLastMs = 0;           // time base for the non-blocking glide stepper
+int         glideTgtPan  = 90;        // where the active glide is heading (startHome/startGlideTo)
+int         glideTgtTilt = 90;
 Preferences prefs;                    // NVS handle for namespace "pantilt"
+
+// ---- Position presets (task #8): 4 framing shots per CONTROL TARGET (D-A2), so the
+// ---- PWM and LX rigs each keep their own. -1 = slot empty. Recall glides (never snaps)
+// ---- via startGlideTo; save stores the live logical position. NVS keys ppTN / ptTN.
+int presetPan[3][4], presetTilt[3][4];
+
+const char* pkey(char axis, int t, int n) {          // "pp01" = pan, target 0, slot 1
+  static char k[8];
+  snprintf(k, sizeof(k), "p%c%d%d", axis, t, n);
+  return k;
+}
+
+void savePreset(int n) {
+  if (n < 0 || n > 3) return;
+  presetPan[ctrlTarget][n]  = panPos;
+  presetTilt[ctrlTarget][n] = tiltPos;
+  prefs.putInt(pkey('p', ctrlTarget, n), panPos);
+  prefs.putInt(pkey('t', ctrlTarget, n), tiltPos);
+}
+
+void clearPreset(int n) {
+  if (n < 0 || n > 3) return;
+  presetPan[ctrlTarget][n] = presetTilt[ctrlTarget][n] = -1;
+  prefs.putInt(pkey('p', ctrlTarget, n), -1);
+  prefs.putInt(pkey('t', ctrlTarget, n), -1);
+}
+
+void recallPreset(int n) {
+  if (n < 0 || n > 3) return;
+  int p = presetPan[ctrlTarget][n], t = presetTilt[ctrlTarget][n];
+  if (p < 0 || t < 0) return;                        // empty slot: nothing to do
+  startGlideTo(p, t);                                // clamped to the live limits inside
+}
 
 // ---- Per-target config plumbing (D-A2) ---------------------------------------------
 // NVS key for one target's copy of a config scalar: base + target digit, e.g. "pmin1".
@@ -376,6 +411,10 @@ String fullStatus() {
   s += ','; s += lxRelax;                // 33 idle torque release (0 hold / 1 release)
   s += ','; s += pwmPanPin;              // 34 PWM pan GPIO (applied at boot)
   s += ','; s += pwmTiltPin;             // 35 PWM tilt GPIO (applied at boot)
+  for (int n = 0; n < 4; n++) {          // 36-43: active target's presets (pan,tilt)x4; -1 empty
+    s += ','; s += presetPan[ctrlTarget][n];
+    s += ','; s += presetTilt[ctrlTarget][n];
+  }
   return s;
 }
 
@@ -466,6 +505,16 @@ void loadSettings() {
     c.pan       = constrain(c.pan,  c.panMin,  c.panMax);   // boot position inside its own window
     c.tilt      = constrain(c.tilt, c.tiltMin, c.tiltMax);
   }
+  // Position presets: per target, both axes valid 0..180 or the slot is empty (-1).
+  for (int t = 0; t < 3; t++)
+    for (int n = 0; n < 4; n++) {
+      int pp = prefs.getInt(pkey('p', t, n), -1);
+      int pt = prefs.getInt(pkey('t', t, n), -1);
+      bool ok = pp >= 0 && pp <= 180 && pt >= 0 && pt <= 180;
+      presetPan[t][n]  = ok ? pp : -1;
+      presetTilt[t][n] = ok ? pt : -1;
+    }
+
   loadSlot(ctrlTarget);        // the active target's position + config become the live globals
 }
 
@@ -511,6 +560,18 @@ bool testBusy() { return testKind >= 0; }   // running OR halted: normal motion 
 // in updateHoming() from loop(), so this never blocks.
 void startHome() {
   if (testBusy()) return;                   // range test owns the rig
+  glideTgtPan  = homePan;
+  glideTgtTilt = homeTilt;
+  homing     = true;
+  homeLastMs = millis();
+}
+
+// Glide smoothly to an arbitrary position (preset recall) - same non-blocking
+// engine as HOME, same homeSpeed, targets clamped to the active soft limits.
+void startGlideTo(int p, int t) {
+  if (testBusy()) return;                   // range test owns the rig
+  glideTgtPan  = constrain(p, panMin,  panMax);
+  glideTgtTilt = constrain(t, tiltMin, tiltMax);
   homing     = true;
   homeLastMs = millis();
 }
@@ -528,15 +589,15 @@ void updateHoming() {
   if (stepDeg < 1) return;                 // accumulate: don't move the base yet
   homeLastMs = now;
   int pBefore = panPos, tBefore = tiltPos;
-  panPos  = stepToward(panPos,  homePan,  stepDeg);
-  tiltPos = stepToward(tiltPos, homeTilt, stepDeg);
+  panPos  = stepToward(panPos,  glideTgtPan,  stepDeg);
+  tiltPos = stepToward(tiltPos, glideTgtTilt, stepDeg);
   driveAngle(PAN,  panPos);
   driveAngle(TILT, tiltPos);
   oledDirty = true;
   // Corner LEDs: reflect whichever axis is actually moving (pan takes priority).
   if (panPos != pBefore)       signalMove(PAN,  panPos - pBefore);
   else if (tiltPos != tBefore) signalMove(TILT, tiltPos - tBefore);
-  if (panPos == homePan && tiltPos == homeTilt) homing = false;
+  if (panPos == glideTgtPan && tiltPos == glideTgtTilt) homing = false;
 }
 
 // Keep everything mutually consistent after a limit change: home stays inside
@@ -775,6 +836,11 @@ void handleAction() {
     setJoyMode(what.toInt());
   } else if (group == "R") {                 // idle torque release: R,<0=hold|1=release after 3s>
     setLxRelax(what.toInt());
+  } else if (group == "P") {                 // presets: P,<R|S|X>,<1-4> = recall / save / clear
+    int n = constrain(val, 1, 4) - 1;
+    if      (what == "R") recallPreset(n);
+    else if (what == "S") savePreset(n);
+    else if (what == "X") clearPreset(n);
   } else if (group == "K") {                 // button remap (D-B, web-only): K,<HM|BK|EN|TG>,<0..4>
     if      (what == "HM") setMapHome(val);
     else if (what == "BK") setMapBack(val);
@@ -1528,7 +1594,7 @@ void hintBar(int y, const Hint* h, int n) {   // struct Hint defined at the top 
 
 // MENU pages: Config + Position + Calibration + Connection (+ Servo Bus and the
 // per-servo editor when the LX-16A bus is up).
-int menuPageCount() { return (bknd == 1) ? 7 : 5; }   // +1: the Test page (always last)
+int menuPageCount() { return (bknd == 1) ? 8 : 6; }   // Test then Presets close the carousel
 
 // -------- one info page (0 Conn, 1 Position, 2 Calibration, 3 Servo Bus) --------
 // Content only; the dispatcher owns clearBuffer()/dots/sendBuffer().
@@ -1870,7 +1936,37 @@ void drawServoPage() {
 // Item 0 picks the servo, item 1 is a Run/STOP action row. While a test runs, the
 // cockpit is locked EXCEPT Confirm/Back, which act as a physical STOP button.
 int testOledSel = 0;                 // 0 PWM pan · 1 PWM tilt · 2 LX pan-id · 3 LX tilt-id
-int testPageIdx() { return (bknd == 1) ? 6 : 4; }
+int testPageIdx()   { return (bknd == 1) ? 6 : 4; }
+int presetPageIdx() { return (bknd == 1) ? 7 : 5; }
+
+// ---- OLED Presets page: U/D pick a slot, Confirm = recall (glide), A = save here. ----
+void drawPresetPage() {
+  char buf[24];
+  oled.setFont(u8g2_font_7x13B_tr);
+  oled.drawStr(0, 12, "Presets");
+  oled.setFont(u8g2_font_5x7_tr);
+  oled.drawStr(84, 11, ctrlTarget == 0 ? "PWM" : ctrlTarget == 1 ? "SERIAL" : "BOTH");
+  oled.drawHLine(0, 16, 128);
+  oled.setFont(u8g2_font_6x12_tr);
+  for (int i = 0; i < 4; i++) {
+    int y = 32 + i * 16;
+    if (i == menuSel) { oled.drawBox(0, y - 12, 128, 15); oled.setDrawColor(0); }
+    snprintf(buf, sizeof(buf), "%d", i + 1);
+    oled.drawStr(4, y, buf);
+    if (presetPan[ctrlTarget][i] >= 0)
+      snprintf(buf, sizeof(buf), "%d / %d", presetPan[ctrlTarget][i], presetTilt[ctrlTarget][i]);
+    else
+      snprintf(buf, sizeof(buf), "--");
+    oled.drawStr(124 - oled.getStrWidth(buf), y, buf);
+    if (i == menuSel) oled.setDrawColor(1);
+  }
+  if (homing) {
+    oled.setFont(u8g2_font_5x7_tr);
+    oled.drawStr(0, 106, "gliding...");
+  }
+  Hint h[3] = { { -1, "U/D" }, { mapEnter, "recall" }, { mapHome, "save" } };
+  hintBar(118, h, 3);
+}
 
 void drawTestPage() {
   char buf[28];
@@ -1934,9 +2030,10 @@ void drawOLED() {
     case 1:  drawInfoPage(1);  break;         // Position
     case 2:  drawInfoPage(2);  break;         // Calibration
     case 3:  drawInfoPage(0);  break;         // Connection
-    case 4:  if (bknd == 1) drawInfoPage(3); else drawTestPage(); break;   // Servo Bus / Test
-    case 5:  drawServoPage();  break;         // per-servo detail + edit (LX only)
-    default: drawTestPage();   break;         // range test (LX layout: page 6)
+    case 4:  if (bknd == 1) drawInfoPage(3); else drawTestPage();   break;  // Servo Bus / Test
+    case 5:  if (bknd == 1) drawServoPage();  else drawPresetPage(); break; // Servo editor / Presets
+    case 6:  drawTestPage();   break;         // range test (LX layout)
+    default: drawPresetPage(); break;         // presets (LX layout: page 7)
   }
   drawMenuDots();
   oled.sendBuffer();
@@ -2246,6 +2343,7 @@ void readJoystick() {
   if      (menuPage == 0) items = 4;                // Config: speed / joy mode / step / target
   else if (bknd == 1 && menuPage == 5) items = SV_ITEMS;   // Servo: full per-servo setting list
   else if (menuPage == testPageIdx()) items = 2;    // Test: servo selector + run/stop action
+  else if (menuPage == presetPageIdx()) items = 4;  // Presets: 4 slots
 
   if (bB) { editing = false; oledDirty = true; return; }   // back / cancel edit
 
@@ -2271,6 +2369,7 @@ void readJoystick() {
     }
     if (bEnter) { editing = false; oledDirty = true; }         // confirm (values persist live)
   } else {
+    if (bA && menuPage == presetPageIdx()) { savePreset(menuSel); oledDirty = true; }   // A = save here
     if (sy != 0 && items > 0) { menuSel = constrain(menuSel + sy, 0, items - 1); oledDirty = true; }
     if (sx != 0) { menuPage = (menuPage + sx + menuPageCount()) % menuPageCount(); menuSel = 0; oledDirty = true; }
     if (bEnter && items > 0) {
@@ -2282,6 +2381,7 @@ void readJoystick() {
         if (err) snprintf(testMsg, sizeof(testMsg), "refused: %s", err);
         oledDirty = true;
       }
+      else if (menuPage == presetPageIdx()) { recallPreset(menuSel); oledDirty = true; }  // glide there
       else { editing = true; oledDirty = true; }
     }
   }

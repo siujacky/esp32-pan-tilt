@@ -141,6 +141,14 @@ Setters (`setPanMin/Max`, `setTiltMin/Max`, `setHomePan/Tilt`, `setStep`, `setHo
 their key, and — for limit changes — call `reclampToLimits()`, which pulls the live position and
 home inside the new window (writing the servo if needed) **and persists home if it moved**.
 
+### Position presets
+
+Four framing shots per **control target** (D-A2: PWM, Serial and Both each keep their own), stored
+in NVS (`ppTN`/`ptTN`, −1 = empty). `P,<R|S|X>,<1-4>` recalls / saves / clears; recall rides the
+home-glide engine (`startGlideTo`, clamped to the live soft limits) so it never snaps. Status CSV
+fields 36–43 carry the active target's slots, so the web main-page card and the OLED Presets page
+(last MENU page: Confirm = recall, A = save) stay in sync automatically.
+
 ### Range test with collision watch (user-designed)
 
 `GET /servotest` (web **Test** tab) sweeps ONE servo across the full physical 0–180° at 10 °/s —

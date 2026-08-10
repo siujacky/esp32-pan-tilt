@@ -61,15 +61,21 @@ Read `lessonlearn.md` before debugging anything: 23 hard-won lessons, each one c
 
 ## Open work, in rough value order
 
-1. **Position presets** (save/recall framing shots) — tracked as an open task; the natural next
-   feature. Flash headroom is ample now (61 % of 1.97 MB).
-2. **Second LX servo bring-up** when the user is ready: program ID 2 (web Serial→IDs, lone flow),
+1. **Second LX servo bring-up** when the user is ready: program ID 2 (web Serial→IDs, lone flow),
    link tilt, set its limits. Everything is built and waiting.
 3. **7.4 V supply** — watch `/lxcal` trims decay to ~0 and fault 0x02 clear as confirmation.
 4. Settings export/import; auth if it ever leaves the LAN.
 5. Watch for the bench power gremlin (now mostly defanged: **prefer OTA flashing** —
    `pio run -e esp32ota -t upload`, target `pantilt.local`).
 
+**Tooling hazard (cost a live outage):** NEVER pass backslash escape sequences through the bash
+heredoc path — it collapses them a layer before Python, so patches write real newlines into JS
+string literals (broke the whole web page) AND the "fix" scripts silently no-op because pattern
+and replacement mangle identically. Write patch scripts with the **Write tool**, and build any
+needed escapes from `chr()` (lesson 24).
+
+Done & hardware-verified 2026-08-09 (3rd wave): **position presets** (4/target, NVS, glide recall,
+web card + OLED page + CSV 36-43, survived reboot, clear verified) — shipped over OTA.
 Done & hardware-verified 2026-08-09 (2nd wave): mDNS (`pantilt.local`), OTA end-to-end (wireless
 flash → reboot → healthy), and the collision watch physically tripped via a synthetic obstacle
 (servo EEPROM limit): trip at 84°, backoff +5° opposite travel, HALT with total motion lockout,

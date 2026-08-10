@@ -178,6 +178,9 @@ alarm-min  spec floor   NOMINAL     spec ceiling      damage
         keeps its <em>own</em> position, limits, home and speed.</li>
     <li><b>D-pad</b> — arrows nudge (hold to repeat); center ⌂ glides home.</li>
     <li><b>Speed / Step slider</b> — degrees per nudge.</li>
+    <li><b>Presets</b> — four saved framing shots per servo-set. Tap a slot to <b>glide</b> there;
+        arm <em>Save to…</em> (or <em>Clear…</em>) then tap the slot. The OLED has the same four
+        slots on its last MENU page (Confirm = recall, A = save).</li>
   </ul>
   <h3>Settings (tap the badge)</h3>
   <div class="tablewrap"><table>
@@ -441,6 +444,7 @@ alarm-min  spec floor   NOMINAL     spec ceiling      damage
     <tr><td class="pin">/action?go=B,H</td><td>glide home</td></tr>
     <tr><td class="pin">/action?go=S,&lt;n&gt; · V,&lt;n&gt;</td><td>step size · home speed</td></tr>
     <tr><td class="pin">/action?go=T,&lt;0|1|2&gt;</td><td>control target: PWM · LX · Both</td></tr>
+    <tr><td class="pin">/action?go=P,&lt;R|S|X&gt;,&lt;1-4&gt;</td><td>presets: recall (glide) · save current · clear</td></tr>
     <tr><td class="pin">/action?go=J,&lt;0|1&gt; · Y,&lt;0|1&gt; · R,&lt;0|1&gt;</td><td>joystick enable · RATE/ABS · torque release</td></tr>
     <tr><td class="pin">/action?go=K,&lt;HM|BK|EN|TG&gt;,&lt;0-4&gt;</td><td>remap a cockpit button</td></tr>
     <tr><td class="pin">/servoscan · /servoid · /servocfg</td><td>bus discovery · ID programming · register read/write</td></tr>

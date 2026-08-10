@@ -44,6 +44,9 @@ troubleshooting. (Also downloadable from [Releases](../../releases), source at `
   setting is one tap away instead of a long scroll; the Servos tab appears only on the LX backend.
 - **HOME glide** — a center/home button that **smoothly glides** both servos back at an
   adjustable speed (10–300 °/s) instead of snapping.
+- **Position presets** — 4 framing shots per servo-set, saved to flash. Tap a slot on the main
+  page (or the OLED Presets page) and the rig **glides** there at the home speed; arm "Save to…"
+  to store the current position. Kept independently for PWM / Serial / Both.
 - **Servo range test** (web · Test tab) — sweep any single servo across its full 0–180° travel at a
   gentle 10 °/s (soft limits deliberately bypassed). All other control locks out during the test.
   Serial servos are **collision-watched**: if the measured angle stops following the command, the
@@ -319,6 +322,7 @@ All `/action` and `/status` responses are `text/plain` with header
 | `GET /action?go=T,<0\|1\|2>` | control target: 0 = PWM, 1 = LX-16A, 2 = both |
 | `GET /action?go=J,<0\|1>` | enable / disable the joystick |
 | `GET /action?go=Y,<0\|1>` | joystick drive mode: 0 = RATE (hold to jog), 1 = ABSOLUTE (glide to stick) |
+| `GET /action?go=P,<R\|S\|X>,<1-4>` | presets: Recall (glide) / Save current / Clear a slot |
 | `GET /action?go=R,<0\|1>` | LX idle torque: 0 = hold position, 1 = release ~3 s after each move settles (no buzz; no holding force) |
 | `GET /action?go=K,<HM\|BK\|EN\|TG>,<0-4>` | remap a cockpit button (home / back / confirm / toggle) to A·B·C·D·OK |
 | `GET /servotest?start=pwm&axis=pan\|tilt` · `?start=lx&id=<n>` · `?stop=1` | slow full-range sweep (10°/s, ignores soft limits); serial servos are collision-watched — on block: back off 5° and HALT |
@@ -348,6 +352,7 @@ All `/action` and `/status` responses are `text/plain` with header
 23-26 ctrlTarget,joystickPresent,joystickEnabled,joyMode
 27-30 mapHome,mapBack,mapConfirm,mapToggle                         (button remap; 0-4 = A/B/C/D/OK)
 31    lxpin   32 lxRelax   33-34 pwmPanPin,pwmTiltPin
+35-42 presets (pan,tilt)x4 of the active target (-1 = empty slot)
 32    lxRelax                                                      (idle torque release 0/1)
 ```
 
