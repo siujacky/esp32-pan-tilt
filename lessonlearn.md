@@ -517,6 +517,57 @@ telemetry **immediately paid for itself**, measuring only ~5.0 V at a servo fed 
 
 ---
 
+## 22. Review themes: guards must be uniform, and refactors leak into their consumers
+
+**Context.** A 41-agent review of the finished firmware confirmed 10 distinct correctness bugs.
+Almost all of them fell into just two patterns — worth knowing because they predict where the
+NEXT bugs will be.
+
+**Pattern 1 — a safety guard added in one place is a bug everywhere it isn't.** The joystick's
+failed-read and garbage-read guards were built for the mini stick's axes… and nowhere else: the
+(then-present) seesaw axes had none, and the mini's *buttons* had none — so a garbage byte could
+still fire a phantom "home" or an EEPROM write. A guard that exists because "input X can produce
+uncommanded motion" must be applied to EVERY input that can produce motion, mechanically, not
+just where the incident happened. (The seesaw path itself was speculative dead code for hardware
+never owned — it was deleted outright; it had cost real review budget to "fix".)
+
+**Pattern 2 — a data-model refactor breaks every consumer that still assumes the old model.**
+Making config per-target (`ctrlSlot`) silently invalidated five consumers that assumed one shared
+config: "Both" mode clamped by the wrong slot's limits, diagnostic sweeps clamped by whatever
+target happened to be active, stall faults comparing one rig's command against the other rig's
+telemetry, auto-trim adoption desyncing the mirrored rig, and boot pin-validation reading defaults
+that NVS hadn't overwritten yet. After changing what a global MEANS, grep every reader — the
+compiler only finds the ones whose types changed.
+
+**Bonus protocol trap:** the LX-16A reports position as **signed** int16. A servo pressed past its
+zero end replies −4 ticks; an unsigned decode renders that as ~15,700°, which then poisons the UI,
+the fault engine, and the trim loop in one shot. Decode signed, clamp to the physical range.
+
+---
+
+## 23. UI timers must count every kind of user input - and poll-friendly events only
+
+**Symptom (user report).** On the DRIVE page, pressing A (home) "sometimes did nothing, sometimes
+quit the page back to MENU."
+
+**Two real defects, one press.**
+- The DRIVE page's 5-second idle timeout counted only STICK motion as activity. Pressing A near
+  the timeout started the home glide and flipped to MENU in the same tick — and the button's
+  feedback flash rendered on the NEW page (whose hint bar has no A), so the press also *looked*
+  dead. **Any user input is activity**; and a started glide should keep its page alive until it
+  lands.
+- Clicks keyed on the module's SINGLE_CLICK event (code 3), a latch that appears only briefly
+  after release — a 30 ms poll can straddle and miss it entirely. Keying on the **press-down
+  event (code 0)**, which is held-stable for the whole press, cannot be missed at any sane poll
+  rate, survives the double-read garbage check naturally, and makes buttons feel snappier
+  (respond on press, not release). The fleeting 3 stays only as a fallback for missed taps.
+
+**Takeaway.** When polling event-latch hardware, prefer level-like events (held states) over
+edge-like latches; and audit every timeout in a UI for inputs it fails to count — the bug reads
+as "flaky button" but is really "the page left while you pressed it."
+
+---
+
 ## Meta-lessons
 
 - **Verify with evidence.** Every "is it working?" was answered with a real signal — a serial probe
