@@ -86,7 +86,7 @@ footer{margin-top:60px; padding-top:18px; border-top:1px solid var(--line); font
 
 <main>
 <div class="cover">
-  <div class="eyebrow">Owner's Manual · Rev 2026-08-09</div>
+  <div class="eyebrow">Owner's Manual · Rev 2026-08-09 · 2nd edition</div>
   <h1>ESP32 Pan / Tilt Controller</h1>
   <p>A two-axis camera rig driven three ways — self-contained web page, physical joystick cockpit
      on a 1.5&Prime; OLED, and an HTTP API — with pluggable servo backends (SG90 PWM or LX-16A serial bus),
@@ -184,6 +184,7 @@ alarm-min  spec floor   NOMINAL     spec ceiling      damage
     <tr><td><b>Serial</b> <span class="mono">(LX only)</span></td><td>sub-tabs — <b>Main</b>: telemetry, torque-when-parked · <b>IDs</b>: bus scan, link servo IDs, program a servo's ID · <b>Detail</b>: full register editor, servo picked from a dropdown</td></tr>
     <tr><td><b>Digital</b></td><td>PWM pan/tilt GPIO pickers — used pins are hidden automatically; save reboots onto the new pins</td></tr>
     <tr><td><b>Joystick</b></td><td>stick enable · RATE / ABSOLUTE · button remap</td></tr>
+    <tr><td><b>Test</b></td><td>full-range servo sweep with collision watch — see §7</td></tr>
     <tr><td><b>System</b></td><td>backend switch (PWM ⇄ LX-16A) · LX bus pin · WiFi setup</td></tr>
   </table></div>
 </section>
@@ -201,8 +202,9 @@ alarm-min  spec floor   NOMINAL     spec ceiling      damage
   </div>
   <p class="kv">The stick's center-click (OK) is deliberately unused — it's stiff and nudges the stick.
      All four actions are remappable from the web page only, so a bad map can never lock you out.
-     <b>Every press flashes its hint inverted</b> in the bottom bar (see Fig. 2) — instant feedback that
-     the click registered.</p>
+     Buttons fire on <b>press-down</b> (no need to wait for release), presses count as activity for
+     the DRIVE idle timer, and <b>every press flashes its hint inverted</b> in the bottom bar
+     (see Fig. 2) — instant feedback that the click registered.</p>
 
   <div class="flow">          ┌──────── D ────────┐
           ▼                   │
@@ -217,18 +219,22 @@ alarm-min  spec floor   NOMINAL     spec ceiling      damage
         <rect width="128" height="128" fill="#05070b"/>
         <text x="0" y="12" fill="#dbe9ff" font-family="monospace" font-size="10" font-weight="bold">Config</text>
         <rect x="0" y="15" width="128" height="1" fill="#dbe9ff"/>
-        <rect x="0" y="26" width="128" height="15" fill="#dbe9ff"/>
-        <text x="4" y="38" fill="#05070b" font-family="monospace" font-size="9">Speed</text>
-        <text x="124" y="38" fill="#05070b" font-family="monospace" font-size="9" text-anchor="end">30</text>
-        <text x="4" y="58" fill="#dbe9ff" font-family="monospace" font-size="9">Joy mode</text>
-        <text x="124" y="58" fill="#dbe9ff" font-family="monospace" font-size="9" text-anchor="end">RATE</text>
-        <text x="4" y="78" fill="#dbe9ff" font-family="monospace" font-size="9">Step</text>
-        <text x="124" y="78" fill="#dbe9ff" font-family="monospace" font-size="9" text-anchor="end">5</text>
+        <rect x="0" y="24" width="128" height="14" fill="#dbe9ff"/>
+        <text x="4" y="34" fill="#05070b" font-family="monospace" font-size="8.4">Speed</text>
+        <text x="124" y="34" fill="#05070b" font-family="monospace" font-size="8.4" text-anchor="end">30</text>
+        <text x="4" y="52" fill="#dbe9ff" font-family="monospace" font-size="8.4">Joy mode</text>
+        <text x="124" y="52" fill="#dbe9ff" font-family="monospace" font-size="8.4" text-anchor="end">RATE</text>
+        <text x="4" y="70" fill="#dbe9ff" font-family="monospace" font-size="8.4">Step</text>
+        <text x="124" y="70" fill="#dbe9ff" font-family="monospace" font-size="8.4" text-anchor="end">5</text>
+        <text x="4" y="88" fill="#dbe9ff" font-family="monospace" font-size="8.4">Target</text>
+        <text x="124" y="88" fill="#dbe9ff" font-family="monospace" font-size="8.4" text-anchor="end">SERIAL</text>
         <text x="1" y="110" fill="#7d8fae" font-family="monospace" font-size="6.4">U/D pick  C edit  D fly</text>
         <g fill="none" stroke="#dbe9ff"><circle cx="34" cy="124" r="2" fill="#dbe9ff"/><circle cx="46" cy="124" r="2"/><circle cx="58" cy="124" r="2"/><circle cx="70" cy="124" r="2"/><circle cx="82" cy="124" r="2"/><circle cx="94" cy="124" r="2"/></g>
       </svg></div>
       <figcaption><b>Fig. 1 — MENU · Config.</b> Stick ▲▼ moves the highlight, ◄► changes page
-      (the dots track 6 pages on the LX backend). <b>C</b> edits the selected row.</figcaption>
+      (the dots track 6 pages on the LX backend). <b>C</b> edits the selected row. The
+      <b>Target</b> row switches which servo set the stick flies — PWM, SERIAL, or BOTH —
+      without touching the web page.</figcaption>
     </figure>
 
     <figure>
@@ -237,13 +243,15 @@ alarm-min  spec floor   NOMINAL     spec ceiling      damage
         <rect width="128" height="128" fill="#05070b"/>
         <text x="0" y="12" fill="#dbe9ff" font-family="monospace" font-size="10" font-weight="bold">Config</text>
         <rect x="0" y="15" width="128" height="1" fill="#dbe9ff"/>
-        <rect x="0" y="26" width="128" height="15" fill="#dbe9ff"/>
-        <text x="4" y="38" fill="#05070b" font-family="monospace" font-size="9">Speed</text>
-        <text x="124" y="38" fill="#05070b" font-family="monospace" font-size="9" text-anchor="end">35</text>
-        <text x="4" y="58" fill="#dbe9ff" font-family="monospace" font-size="9">Joy mode</text>
-        <text x="124" y="58" fill="#dbe9ff" font-family="monospace" font-size="9" text-anchor="end">RATE</text>
-        <text x="4" y="78" fill="#dbe9ff" font-family="monospace" font-size="9">Step</text>
-        <text x="124" y="78" fill="#dbe9ff" font-family="monospace" font-size="9" text-anchor="end">5</text>
+        <rect x="0" y="24" width="128" height="14" fill="#dbe9ff"/>
+        <text x="4" y="34" fill="#05070b" font-family="monospace" font-size="8.4">Speed</text>
+        <text x="124" y="34" fill="#05070b" font-family="monospace" font-size="8.4" text-anchor="end">35</text>
+        <text x="4" y="52" fill="#dbe9ff" font-family="monospace" font-size="8.4">Joy mode</text>
+        <text x="124" y="52" fill="#dbe9ff" font-family="monospace" font-size="8.4" text-anchor="end">RATE</text>
+        <text x="4" y="70" fill="#dbe9ff" font-family="monospace" font-size="8.4">Step</text>
+        <text x="124" y="70" fill="#dbe9ff" font-family="monospace" font-size="8.4" text-anchor="end">5</text>
+        <text x="4" y="88" fill="#dbe9ff" font-family="monospace" font-size="8.4">Target</text>
+        <text x="124" y="88" fill="#dbe9ff" font-family="monospace" font-size="8.4" text-anchor="end">SERIAL</text>
         <text x="1" y="110" fill="#7d8fae" font-family="monospace" font-size="6.4">U/D change</text>
         <rect x="46" y="102" width="22" height="10" fill="#dbe9ff"/>
         <text x="48" y="110" fill="#05070b" font-family="monospace" font-size="6.4">C ok</text>
@@ -364,6 +372,8 @@ alarm-min  spec floor   NOMINAL     spec ceiling      damage
   </table></div>
   <ul>
     <li>Switch modes on the OLED Config page or the web Joystick tab.</li>
+    <li>Switch which servo set the stick flies (<b>PWM / SERIAL / BOTH</b>) on the Config page's
+        <b>Target</b> row — or the web page's target tabs; they're the same setting.</li>
     <li><b>Glitch-proof input:</b> failed or inconsistent I²C reads are discarded, never interpreted as
         stick motion. After 100 consecutive failures the stick is declared offline until reboot.</li>
     <li>Remapping the four buttons is <b>web-only</b> by design — the stick can't rebind itself.</li>
@@ -387,8 +397,19 @@ alarm-min  spec floor   NOMINAL     spec ceiling      damage
      fully silent, zero hold current. Any new command re-engages it first.
      <span class="mono">Caution:</span> a released axis won't hold an unbalanced load against gravity —
      keep "Hold" for a heavy tilt.</p>
+  <h3>Range test with collision watch</h3>
+  <p>The web <b>Test</b> tab sweeps any single servo across its <b>full 0–180° travel at 10°/s</b> —
+     soft limits deliberately bypassed, because that's what a range test is for. While a test runs,
+     every other control (joystick, D-pad, home, auto-trim) is locked out. Serial servos are
+     <b>collision-watched</b>: if the measured angle stops following the command (&gt;8° gap, ~1 s of
+     no progress), the servo instantly backs off <b>5° against its direction of travel</b> and the
+     whole system <b>halts</b> until you press <em>Stop / clear halt</em>. PWM servos have no feedback —
+     their sweep runs blind, so keep a hand near the power.</p>
+  <div class="callout"><b>Caution</b> A range test intentionally ignores your soft limits. Clear the
+     rig's surroundings first; the slow speed and collision watch are the safety net, not a guarantee.</div>
   <div class="callout ok"><b>Verified</b> Commanded 90° → measured 89–90° closed-loop on this rig;
-     trim, park and release all exercised on hardware against a live LX-16A.</div>
+     trim, park, release, and a full 0→180→park range test with live tracking (cmd/actual within
+     3–5°) all exercised on hardware against a live LX-16A.</div>
 </section>
 
 <section id="s8">

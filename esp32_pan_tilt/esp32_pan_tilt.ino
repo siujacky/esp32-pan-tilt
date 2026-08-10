@@ -2077,11 +2077,16 @@ void readJoystick() {
     for (int i = 0; i < 5; i++) {
       int v = miniRead(JOY_BTN_REG[i]);
       if (v > 8) v = -1;                            // valid event codes are 0..8; else garbage
-      if (v == 3) {                                 // click candidate: confirm plausibility with a
-        int v2 = miniRead(JOY_BTN_REG[i]);          // second read - a real click reads 3 again (or
-        if (v2 < 0 || v2 > 8) v = -1;               // 8 if the event cleared); garbage reads random
+      if (v == 0 || v == 3) {                       // click candidate: confirm plausibility with a
+        int v2 = miniRead(JOY_BTN_REG[i]);          // second read - a real press/click reads a
+        if (v2 < 0 || v2 > 8) v = -1;               // valid code again; garbage reads random
       }
-      click[i] = (v == 3 && pv[i] != 3);            // failed read (-1): no click, keep prev state
+      // Fire on the PRESS-DOWN edge (event 0 is held-stable, so a 30ms poll can't miss
+      // it - the user reported A sometimes not responding, and the fleeting single-
+      // click latch (3) was the culprit). 3 remains a fallback for taps whose press-
+      // down we missed; the pv[i]!=0 guard stops it double-firing after a caught 0.
+      click[i] = (v == 0 && pv[i] != 0) ||
+                 (v == 3 && pv[i] != 3 && pv[i] != 0);
       if (v >= 0) pv[i] = (uint8_t)v;
     }
     bA = click[mapHome]; bB = click[mapBack]; bEnter = click[mapEnter]; bTgl = click[mapTgl];
@@ -2102,7 +2107,11 @@ void readJoystick() {
 
   if (cockMode == CM_DRIVE) {
     if (bA) startHome();
-    bool active = false;
+    // Button presses ARE activity (user report: pressing A right around the 5s idle
+    // mark started the glide AND flipped to MENU in the same tick), and an in-flight
+    // home glide keeps DRIVE alive so the page doesn't bail mid-glide.
+    if (bA || bB || bEnter) driveIdleSince = now;
+    bool active = homing;
     if (joyMode == 0) {                             // RATE: proportional-rate jog
       if (abs(xd) > dead) {
         uint16_t iv = map(min(abs(xd), full), dead, full, JOY_SLOW_MS, JOY_FAST_MS);
