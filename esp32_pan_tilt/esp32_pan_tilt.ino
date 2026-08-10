@@ -17,6 +17,8 @@
 #include <Wire.h>
 #include <U8g2lib.h>
 #include <Preferences.h>   // NVS persistence (namespace "pantilt")
+#include <ESPmDNS.h>       // http://pantilt.local (no more IP hunting)
+#include <ArduinoOTA.h>    // wireless firmware updates (needs the min_spiffs partition table)
 #include <Adafruit_NeoPixel.h>   // WS2812B corner LEDs on GPIO 16
 #include "web_page.h"        // provides: const char INDEX_HTML[] PROGMEM
 #include "servo_backend.h"   // ServoBackend seam: enum Axis, PwmBackend (default) + Lx16aBackend, LX helpers
@@ -658,6 +660,7 @@ void nudge(Axis axis, int dir) {
 //  Section 5 - WiFi state machine: STA first, AP fallback
 // ============================================================
 void connectWiFi() {
+  WiFi.setHostname("pantilt");            // DHCP name; mDNS below gives pantilt.local
   // Credentials: use the ones provisioned from the web page (saved in NVS) if
   // present, else the compiled-in placeholders. Provisioning writes wssid/wpass
   // then reboots, so the new network is picked up here on the next boot.
@@ -2346,6 +2349,24 @@ void setup() {
   // WiFi: Station first, Access-Point fallback.
   connectWiFi();
 
+  // mDNS: reach the rig at http://pantilt.local (works in STA and hotspot mode).
+  if (MDNS.begin("pantilt")) {
+    MDNS.addService("http", "tcp", 80);
+    Serial.println(F("mDNS: http://pantilt.local"));
+  }
+
+  // Wireless flashing (pio run -e esp32ota -t upload). Password matches the hotspot
+  // pass - hobby-LAN grade, but never wide open. Any in-flight test or glide is
+  // stopped before the flash writes begin.
+  ArduinoOTA.setHostname("pantilt");
+  ArduinoOTA.setPassword(AP_PASS);
+  ArduinoOTA.onStart([]() {
+    servoTestStop();
+    homing = false;
+    Serial.println(F("OTA update starting..."));
+  });
+  ArduinoOTA.begin();
+
   // First real OLED frame now that WiFi mode/IP are known.
   oledPage = 0;
   oledDirty = true;
@@ -2380,6 +2401,7 @@ void setup() {
 
 void loop() {
   server.handleClient();
+  ArduinoOTA.handle();     // wireless-update poll (near-zero cost when idle)
 
   // Advance the smooth home glide (non-blocking; no-op unless homing).
   updateHoming();

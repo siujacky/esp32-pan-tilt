@@ -61,13 +61,16 @@ Read `lessonlearn.md` before debugging anything: 23 hard-won lessons, each one c
 
 ## Open work, in rough value order
 
-1. **Position presets** (save/recall framing shots) — most-wanted next feature for a camera rig.
+1. **Position presets** (save/recall framing shots) — tracked as an open task; the natural next
+   feature. Flash headroom is ample now (61 % of 1.97 MB).
 2. **Second LX servo bring-up** when the user is ready: program ID 2 (web Serial→IDs, lone flow),
    link tilt, set its limits. Everything is built and waiting.
 3. **7.4 V supply** — watch `/lxcal` trims decay to ~0 and fault 0x02 clear as confirmation.
-4. **Collision-watch trigger** is code-verified only — never physically tripped. A gentle grip on
-   the horn during `/servotest` should back off 5° and halt; confirm once, then trust it.
-5. **mDNS** (`pantilt.local`) — cheap, high convenience.
-6. **OTA updates** — requires `board_build.partitions = huge_app.csv` first (flash is at ~88 %).
-7. Settings export/import; auth if it ever leaves the LAN.
-8. Watch for the bench power gremlin recurring during range tests (supply/USB under motor load?).
+4. Settings export/import; auth if it ever leaves the LAN.
+5. Watch for the bench power gremlin (now mostly defanged: **prefer OTA flashing** —
+   `pio run -e esp32ota -t upload`, target `pantilt.local`).
+
+Done & hardware-verified 2026-08-09 (2nd wave): mDNS (`pantilt.local`), OTA end-to-end (wireless
+flash → reboot → healthy), and the collision watch physically tripped via a synthetic obstacle
+(servo EEPROM limit): trip at 84°, backoff +5° opposite travel, HALT with total motion lockout,
+clean full sweep after restore.

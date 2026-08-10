@@ -57,6 +57,9 @@ troubleshooting. (Also downloadable from [Releases](../../releases), source at `
 - **WiFi: Station with Access-Point fallback** — joins your network; if it can't, it hosts its
   own hotspot so it's never unreachable.
 - **WiFi provisioning** — scan for networks and join one **from the web page** (no re-flashing).
+- **mDNS** — the rig is always at **`http://pantilt.local`** (STA or hotspot); no IP hunting.
+- **OTA updates** — flash wirelessly with `pio run -e esp32ota -t upload` (password = the hotspot
+  pass). Any running test/glide is stopped before the flash writes begin.
 - **128×128 SH1107 OLED** — an interactive **cockpit**: a live DRIVE HUD and joystick-navigated
   MENU pages (Config / Position / Calibration / Connection / Servo Bus).
 - **4× WS2812B motion LEDs** — a slow rainbow **mood light** when idle, and a **per-direction
@@ -217,7 +220,7 @@ pio device monitor                   # serial @ 115200
 **Arduino IDE:** Board = **"ESP32 Dev Module"**, select the port, **Upload**. If upload stalls at
 "Connecting…", hold the **BOOT** button. First-time driver issues → install **CP210x** or **CH340**.
 
-Typical footprint: **Flash ≈ 82 %** of the default partition, **RAM ≈ 15 %**.
+Typical footprint: **Flash ≈ 61 %** of the `min_spiffs` OTA partition table (two 1.9 MB app slots), **RAM ≈ 17 %**.
 
 ---
 

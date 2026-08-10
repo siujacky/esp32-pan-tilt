@@ -146,7 +146,7 @@ home inside the new window (writing the servo if needed) **and persists home if 
 `GET /servotest` (web **Test** tab) sweeps ONE servo across the full physical 0–180° at 10 °/s —
 soft limits deliberately bypassed (that is the purpose of a range test), which is why every other
 motion source (joystick, D-pad, homing, auto-trim) is hard-locked while a test runs or sits halted.
-On the LX backend the sweep is **collision-watched** every 500 ms: if commanded-vs-measured exceeds
+On the LX backend the sweep is **collision-watched** every 500 ms (verified end-to-end on hardware by narrowing the servo's own EEPROM angle limit as a synthetic obstacle — trip at 84°, backoff to 89°, halt, full lockout, clean recovery after restore): if commanded-vs-measured exceeds
 8° while the measured angle stops progressing (~1 s), the servo is re-commanded to **measured −5°
 against its direction of travel** and the whole system **halts** until `?stop=1`. PWM servos have
 no feedback; their sweep runs blind and the UI says so. The cockpit Config page also gained a
@@ -258,6 +258,13 @@ changes write a single key immediately (user-paced; NVS wear-levels).
 ---
 
 ## 7. WiFi subsystem
+
+**mDNS + OTA.** The device registers `pantilt.local` (mDNS, STA and AP alike; DHCP hostname
+`pantilt`). Wireless flashing runs over ArduinoOTA (`pio run -e esp32ota -t upload`, password =
+`AP_PASS`); `onStart` stops any range test and home glide before flash writes begin. The partition
+table is `min_spiffs` (two 1.9 MB OTA app slots; NVS/otadata/app0 offsets match the default table,
+so stored settings survived the switch — verified).
+
 
 ### Boot decision
 `connectWiFi()` loads creds (provisioned `wssid`/`wpass` if present, else the compiled placeholders)

@@ -95,7 +95,7 @@ footer{margin-top:60px; padding-top:18px; border-top:1px solid var(--line); font
     <div>Firmware<br><b>2026-08-09 build · 35-field status</b></div>
     <div>Board<br><b>ESP32-WROOM (any dev board)</b></div>
     <div>Display<br><b>SH1107 128×128, I²C 0x3C</b></div>
-    <div>Default IP<br><b class="mono">192.168.4.1 (hotspot)</b></div>
+    <div>Address<br><b class="mono">pantilt.local</b> · hotspot 192.168.4.1</div>
   </div>
 </div>
 
@@ -160,7 +160,9 @@ alarm-min  spec floor   NOMINAL     spec ceiling      damage
   <ul>
     <li>On power-up the rig glides both axes to their <b>home</b> angles, then tries your WiFi for ~15 s
         (status LED fast-blinks).</li>
-    <li><b>Joined:</b> the OLED Connection page shows the router-assigned IP. LED solid.</li>
+    <li><b>Joined:</b> browse to <code>http://pantilt.local</code> (mDNS) — or the IP on the OLED
+        Connection page. LED solid. Firmware updates can be wireless from here on
+        (<code>pio run -e esp32ota -t upload</code>).</li>
     <li><b>No WiFi:</b> it opens hotspot <code>ESP32-PanTilt</code> (pass <code>pantilt123</code>) at
         <code>192.168.4.1</code>. LED slow-blinks. Provision your network from the web page
         (System tab → WiFi setup → Scan → join); it saves and reboots onto your network.</li>
@@ -413,7 +415,9 @@ alarm-min  spec floor   NOMINAL     spec ceiling      damage
      rig's surroundings first; the slow speed and collision watch are the safety net, not a guarantee.</div>
   <div class="callout ok"><b>Verified</b> Commanded 90° → measured 89–90° closed-loop on this rig;
      trim, park, release, and a full 0→180→park range test with live tracking (cmd/actual within
-     3–5°) all exercised on hardware against a live LX-16A.</div>
+     3–5°) all exercised on hardware against a live LX-16A — including a real collision-watch trip
+     (synthetic obstacle at 84°: backed off to 89°, halted, all motion locked, clean sweep after
+     the obstacle was removed).</div>
 </section>
 
 <section id="s8">
