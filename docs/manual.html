@@ -398,12 +398,16 @@ alarm-min  spec floor   NOMINAL     spec ceiling      damage
      <span class="mono">Caution:</span> a released axis won't hold an unbalanced load against gravity —
      keep "Hold" for a heavy tilt.</p>
   <h3>Range test with collision watch</h3>
-  <p>The web <b>Test</b> tab sweeps any single servo across its <b>full 0–180° travel at 10°/s</b> —
+  <p>The web <b>Test</b> tab — and the <b>Test page on the OLED</b> (always the last MENU page:
+     pick a servo, Confirm on <em>Run test</em>) — sweeps any single servo across its
+     <b>full 0–180° travel at 10°/s</b> —
      soft limits deliberately bypassed, because that's what a range test is for. While a test runs,
      every other control (joystick, D-pad, home, auto-trim) is locked out. Serial servos are
      <b>collision-watched</b>: if the measured angle stops following the command (&gt;8° gap, ~1 s of
      no progress), the servo instantly backs off <b>5° against its direction of travel</b> and the
-     whole system <b>halts</b> until you press <em>Stop / clear halt</em>. PWM servos have no feedback —
+     whole system <b>halts</b> until you press <em>Stop / clear halt</em> — on the web, or
+     <b>Confirm/Back on the joystick, which act as a physical STOP button</b> whenever a test
+     is running. PWM servos have no feedback —
      their sweep runs blind, so keep a hand near the power.</p>
   <div class="callout"><b>Caution</b> A range test intentionally ignores your soft limits. Clear the
      rig's surroundings first; the slow speed and collision watch are the safety net, not a guarantee.</div>

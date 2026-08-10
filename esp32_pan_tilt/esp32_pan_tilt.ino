@@ -1330,6 +1330,43 @@ void updateServoTest() {
   testWrite(testDeg);
 }
 
+// Start a range test. kind: 0 PWM pan, 1 PWM tilt, 2 LX (lxId). Returns nullptr on
+// success or a short reason. Shared by the HTTP endpoint and the OLED Test page.
+const char* servoTestStart(int kind, int lxId) {
+  if (testBusy()) return "already_running";
+  testHalted = false; testStallN = 0; testPrevActual = -1; testActual = -1;
+  testPhase = 0; testStepMs = millis(); testChkMs = millis();
+  if (kind == 0 || kind == 1) {
+    testKind = kind;
+    testPark = (kind == 0) ? ctrlSlot[0].pan : ctrlSlot[0].tilt;
+    testDeg  = testPark;                             // start from where the rig believes it is
+    snprintf(testMsg, sizeof(testMsg), "PWM %s sweep (no feedback - watch it!)",
+             kind == 0 ? "pan" : "tilt");
+    return nullptr;
+  }
+  if (bknd != 1) return "pwm_mode";
+  if (!lxBusUp) lxBusBegin();
+  testKind = 2;
+  testLxId = constrain(lxId, 0, 253);
+  int act = lxTicksToDeg(lxRead16((uint8_t)testLxId, LX16A_SERVO_POS_READ));
+  if (act < 0) { testKind = -1; return "no_reply"; }
+  uint8_t on[1] = { 1 };                             // make sure it will actually move
+  lxRawSend((uint8_t)testLxId, LX16A_SERVO_LOAD_OR_UNLOAD_WRITE, on, 1);
+  if (testLxId == panid)       testPark = ctrlSlot[1].pan;
+  else if (testLxId == tiltid) testPark = ctrlSlot[1].tilt;
+  else                         testPark = 90;
+  testDeg = act;                                     // start from the servo's REAL position
+  testActual = testPrevActual = act;
+  snprintf(testMsg, sizeof(testMsg), "LX id %d sweep with collision watch", testLxId);
+  return nullptr;
+}
+
+void servoTestStop() {
+  if (testKind >= 0 || testHalted) snprintf(testMsg, sizeof(testMsg), "stopped by user");
+  testKind = -1;
+  testHalted = false;
+}
+
 // GET /servotest            -> status (state/kind/cmd/actual/msg)
 //     /servotest?start=pwm&axis=pan|tilt
 //     /servotest?start=lx&id=<n>
@@ -1337,38 +1374,17 @@ void updateServoTest() {
 void handleServoTest() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
   if (server.hasArg("stop")) {
-    if (testKind >= 0 || testHalted) snprintf(testMsg, sizeof(testMsg), "stopped by user");
-    testKind = -1; testHalted = false;
+    servoTestStop();
     server.send(200, "text/plain", "stopped");
     return;
   }
   if (server.hasArg("start")) {
-    if (testBusy()) { server.send(200, "text/plain", "fail\talready_running"); return; }
     String what = server.arg("start");
-    testHalted = false; testStallN = 0; testPrevActual = -1; testActual = -1;
-    testPhase = 0; testStepMs = millis(); testChkMs = millis();
-    if (what == "pwm") {
-      testKind = (server.arg("axis") == "tilt") ? 1 : 0;
-      testPark = (testKind == 0) ? ctrlSlot[0].pan : ctrlSlot[0].tilt;
-      testDeg  = testPark;                             // start from where the rig believes it is
-      snprintf(testMsg, sizeof(testMsg), "PWM %s sweep (no feedback - watch it!)",
-               testKind == 0 ? "pan" : "tilt");
-    } else if (what == "lx") {
-      if (bknd != 1) { server.send(200, "text/plain", "fail\tpwm_mode"); return; }
-      if (!lxBusUp) lxBusBegin();
-      testKind = 2;
-      testLxId = constrain(server.arg("id").toInt(), 0, 253);
-      int act = lxTicksToDeg(lxRead16((uint8_t)testLxId, LX16A_SERVO_POS_READ));
-      if (act < 0) { testKind = -1; server.send(200, "text/plain", "fail\tno_reply"); return; }
-      uint8_t on[1] = { 1 };                           // make sure it will actually move
-      lxRawSend((uint8_t)testLxId, LX16A_SERVO_LOAD_OR_UNLOAD_WRITE, on, 1);
-      if (testLxId == panid)       testPark = ctrlSlot[1].pan;
-      else if (testLxId == tiltid) testPark = ctrlSlot[1].tilt;
-      else                         testPark = 90;
-      testDeg = act;                                   // start from the servo's REAL position
-      testActual = testPrevActual = act;
-      snprintf(testMsg, sizeof(testMsg), "LX id %d sweep with collision watch", testLxId);
-    } else { server.send(200, "text/plain", "fail\tbad_start"); return; }
+    const char* err;
+    if      (what == "pwm") err = servoTestStart(server.arg("axis") == "tilt" ? 1 : 0, 0);
+    else if (what == "lx")  err = servoTestStart(2, server.arg("id").toInt());
+    else                    err = "bad_start";
+    if (err) { server.send(200, "text/plain", String("fail\t") + err); return; }
     server.send(200, "text/plain", "started");
     return;
   }
@@ -1509,7 +1525,7 @@ void hintBar(int y, const Hint* h, int n) {   // struct Hint defined at the top 
 
 // MENU pages: Config + Position + Calibration + Connection (+ Servo Bus and the
 // per-servo editor when the LX-16A bus is up).
-int menuPageCount() { return (bknd == 1) ? 6 : 4; }
+int menuPageCount() { return (bknd == 1) ? 7 : 5; }   // +1: the Test page (always last)
 
 // -------- one info page (0 Conn, 1 Position, 2 Calibration, 3 Servo Bus) --------
 // Content only; the dispatcher owns clearBuffer()/dots/sendBuffer().
@@ -1847,19 +1863,77 @@ void drawServoPage() {
   }
 }
 
+// ---- OLED Test page (user request: the range test lives on the cockpit too). ----
+// Item 0 picks the servo, item 1 is a Run/STOP action row. While a test runs, the
+// cockpit is locked EXCEPT Confirm/Back, which act as a physical STOP button.
+int testOledSel = 0;                 // 0 PWM pan · 1 PWM tilt · 2 LX pan-id · 3 LX tilt-id
+int testPageIdx() { return (bknd == 1) ? 6 : 4; }
+
+void drawTestPage() {
+  char buf[28];
+  oled.setFont(u8g2_font_7x13B_tr);
+  oled.drawStr(0, 12, "Test");
+  oled.setFont(u8g2_font_5x7_tr);
+  oled.drawStr(72, 11, "0-180 sweep");
+  oled.drawHLine(0, 16, 128);
+  oled.setFont(u8g2_font_6x12_tr);
+
+  const char* names[4] = { "PWM pan", "PWM tilt", "LX pan", "LX tilt" };
+  for (int i = 0; i < 2; i++) {
+    int y = 32 + i * 16;
+    if (i == menuSel) { oled.drawBox(0, y - 12, 128, 15); oled.setDrawColor(0); }
+    if (i == 0) {
+      oled.drawStr(4, y, "Servo");
+      if (testOledSel >= 2) snprintf(buf, sizeof(buf), "%s (id %d)", names[testOledSel],
+                                     testOledSel == 2 ? panid : tiltid);
+      else                  snprintf(buf, sizeof(buf), "%s", names[testOledSel]);
+      bool hide = editing && i == menuSel && (millis() / 350) % 2;
+      if (!hide) oled.drawStr(124 - oled.getStrWidth(buf), y, buf);
+    } else {
+      oled.drawStr(4, y, testBusy() ? "STOP" : "Run test");
+      oled.drawStr(124 - oled.getStrWidth("[OK]"), y, "[OK]");
+    }
+    if (i == menuSel) oled.setDrawColor(1);
+  }
+
+  oled.setFont(u8g2_font_6x12_tr);
+  snprintf(buf, sizeof(buf), "state: %s", testHalted ? "HALTED" : testBusy() ? "running" : "idle");
+  oled.drawStr(0, 72, buf);
+  if (testBusy() || testHalted) {
+    if (testActual >= 0) snprintf(buf, sizeof(buf), "cmd %d  actual %d", testDeg, testActual);
+    else                 snprintf(buf, sizeof(buf), "cmd %d  (no feedback)", testDeg);
+    oled.drawStr(0, 86, buf);
+  }
+  oled.setFont(u8g2_font_5x7_tr);
+  // last message, wrapped over two short lines
+  int n = strlen(testMsg);
+  char l1[25], l2[25];
+  snprintf(l1, sizeof(l1), "%.24s", testMsg);
+  oled.drawStr(0, 98, l1);
+  if (n > 24) { snprintf(l2, sizeof(l2), "%.24s", testMsg + 24); oled.drawStr(0, 106, l2); }
+  if (testBusy()) {
+    Hint h[1] = { { mapEnter, "or B = STOP" } };
+    hintBar(118, h, 1);
+  } else {
+    Hint h[3] = { { -1, "U/D" }, { mapEnter, "run" }, { mapBack, "back" } };
+    hintBar(118, h, 3);
+  }
+}
+
 // Render the cockpit into the full-frame buffer and push it over I2C.
 void drawOLED() {
   if (!oledPresent) return;
   oled.clearBuffer();
   if (cockMode == CM_DRIVE) { drawDriveHUD(); oled.sendBuffer(); return; }
   if (menuPage == 5 && bknd == 1 && !homing) svRefresh(false);   // page-visible, idle-only bus read
-  switch (menuPage) {                         // MENU carousel
+  switch (menuPage) {                         // MENU carousel (Test is always the last page)
     case 0:  drawConfigPage(); break;         // editable
     case 1:  drawInfoPage(1);  break;         // Position
     case 2:  drawInfoPage(2);  break;         // Calibration
     case 3:  drawInfoPage(0);  break;         // Connection
-    case 4:  drawInfoPage(3);  break;         // Servo Bus (LX only)
-    default: drawServoPage();  break;         // per-servo detail + edit (LX only)
+    case 4:  if (bknd == 1) drawInfoPage(3); else drawTestPage(); break;   // Servo Bus / Test
+    case 5:  drawServoPage();  break;         // per-servo detail + edit (LX only)
+    default: drawTestPage();   break;         // range test (LX layout: page 6)
   }
   drawMenuDots();
   oled.sendBuffer();
@@ -2041,7 +2115,30 @@ int stickStep(int defl, int dead, int8_t &armed, uint32_t &tmr) {
 // target (RATE jog or ABSOLUTE glide), A homes, 5s idle -> MENU. MENU: stick U/D =
 // item, L/R = page, OK = edit/confirm, B = back.
 void readJoystick() {
-  if (testBusy()) return;                   // range test owns the rig
+  if (testBusy()) {                         // range test owns the rig - EXCEPT the stop
+    if (!joyEnabled || !joyMini) return;    // buttons: Confirm or Back = physical kill switch
+    uint32_t tnow = millis();
+    static uint32_t tLast = 0;
+    if (tnow - tLast < JOY_MS) return;
+    tLast = tnow;
+    static uint8_t pvStop[2] = { 8, 8 };
+    int regs[2] = { JOY_BTN_REG[mapEnter], JOY_BTN_REG[mapBack] };
+    for (int i = 0; i < 2; i++) {
+      int v = miniRead((uint8_t)regs[i]);
+      if (v > 8) v = -1;
+      if (v == 0 || v == 3) { int v2 = miniRead((uint8_t)regs[i]); if (v2 < 0 || v2 > 8) v = -1; }
+      bool click = (v == 0 && pvStop[i] != 0) || (v == 3 && pvStop[i] != 3 && pvStop[i] != 0);
+      if (v >= 0) pvStop[i] = (uint8_t)v;
+      if (click) {
+        servoTestStop();
+        menuPage = testPageIdx(); menuSel = 1;         // land on the Test page showing the result
+        fbBtn = (i == 0) ? mapEnter : mapBack; fbMs = tnow;
+        oledDirty = true;
+        return;
+      }
+    }
+    return;
+  }
   if (!joyEnabled || !joyMini) return;
   uint32_t now = millis();
   if (now - joyLast < JOY_MS) return;
@@ -2144,7 +2241,8 @@ void readJoystick() {
   int sy = stickStep(yd, dead, armY, tmrY);
   int items = 0;                                    // editable rows on this page
   if      (menuPage == 0) items = 4;                // Config: speed / joy mode / step / target
-  else if (menuPage == 5) items = SV_ITEMS;         // Servo: full per-servo setting list
+  else if (bknd == 1 && menuPage == 5) items = SV_ITEMS;   // Servo: full per-servo setting list
+  else if (menuPage == testPageIdx()) items = 2;    // Test: servo selector + run/stop action
 
   if (bB) { editing = false; oledDirty = true; return; }   // back / cancel edit
 
@@ -2160,8 +2258,11 @@ void readJoystick() {
         else if (menuSel == 2) setStep(stepSize + d);
         else                   setCtrlTarget((ctrlTarget + (d > 0 ? 1 : 2)) % 3);   // cycle the
                                // driven servo set from the stick (clamped to PWM if no LX bus)
-      } else if (menuPage == 5) {
+      } else if (bknd == 1 && menuPage == 5) {
         svEdit(menuSel, d);
+      } else if (menuPage == testPageIdx() && menuSel == 0) {
+        int span = (bknd == 1) ? 4 : 2;               // LX choices exist only with the bus up
+        testOledSel = (testOledSel + (d > 0 ? 1 : span - 1)) % span;
       }
       oledDirty = true;
     }
@@ -2170,8 +2271,15 @@ void readJoystick() {
     if (sy != 0 && items > 0) { menuSel = constrain(menuSel + sy, 0, items - 1); oledDirty = true; }
     if (sx != 0) { menuPage = (menuPage + sx + menuPageCount()) % menuPageCount(); menuSel = 0; oledDirty = true; }
     if (bEnter && items > 0) {
-      if (menuPage == 5 && svIsAction(menuSel)) { svEdit(menuSel, 0); oledDirty = true; }  // action row: execute
-      else                                      { editing = true;     oledDirty = true; }
+      if (menuPage == 5 && bknd == 1 && svIsAction(menuSel)) { svEdit(menuSel, 0); oledDirty = true; }
+      else if (menuPage == testPageIdx() && menuSel == 1) {  // Run: start the selected servo's test
+        const char* err = nullptr;
+        if      (testOledSel <= 1) err = servoTestStart(testOledSel, 0);
+        else                       err = servoTestStart(2, testOledSel == 2 ? panid : tiltid);
+        if (err) snprintf(testMsg, sizeof(testMsg), "refused: %s", err);
+        oledDirty = true;
+      }
+      else { editing = true; oledDirty = true; }
     }
   }
 }
